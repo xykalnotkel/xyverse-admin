@@ -276,12 +276,9 @@ function buatRouter() {
     const target = slugBaru ? slugify(slugBaru) : slug;
     const isi = matter.stringify(`\n${body.trim()}\n`, clean);
 
-    if (slugBaru && target !== slug) {
-      // ganti nama: hapus berkas lama (abaikan kalau memang belum ada)
-      await gh
-        .hapusBerkas(repo, pathKonten(col, slug), `Ganti nama ${col}/${slug} → ${col}/${target} (via dashboard)`)
-        .catch(() => {});
-    }
+    // Urutan sengaja: tulis berkas BARU dulu, baru hapus yang lama.
+    // Kalau tulis gagal, tidak ada yang hilang; kalau hapus gagal,
+    // konten tetap aman (hanya ada dua file — dilaporkan, bukan ditelan).
     await gh.tulisBerkas(
       repo,
       pathKonten(col, target),
@@ -290,6 +287,24 @@ function buatRouter() {
         ? `Buat ${col}/${target} (via dashboard)`
         : `Perbarui ${col}/${target} (via dashboard)`,
     );
+
+    if (slugBaru && target !== slug) {
+      try {
+        await gh.hapusBerkas(
+          repo,
+          pathKonten(col, slug),
+          `Ganti nama ${col}/${slug} → ${col}/${target} (via dashboard)`,
+        );
+      } catch (e) {
+        if (e.status !== 404) {
+          cache.delete(col);
+          throw new Galat(
+            `Berkas "${target}" dibuat, tetapi berkas lama "${slug}" gagal dihapus: ${e.message}. Hapus manual bila perlu.`,
+            502,
+          );
+        }
+      }
+    }
     cache.delete(col);
     json(res, 200, { ok: true, slug: target });
   });
