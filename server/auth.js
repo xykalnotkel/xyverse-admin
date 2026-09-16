@@ -1,15 +1,19 @@
 /**
  * Autentikasi admin Xyverse.
  *
- * - Nama pengguna + kata sandi, hash bcrypt disimpan di .env (ADMIN_PASS_HASH)
+ * - Nama pengguna + kata sandi, hash bcrypt disimpan di lingkungan (ADMIN_PASS_HASH)
  * - Sesi berbasis cookie httpOnly bertanda tangan HMAC, tanpa penyimpanan server
+ *   (cocok untuk serverless: cookie stateless, valid lintas instans)
  * - Verifikasi Cloudflare Turnstile pada endpoint login
  * - Pembatasan laju percobaan login per alamat IP
+ *   (catatan serverless: memory per instans — tetap memperlambat brute force,
+ *    ditambah proteksi Turnstile sebagai lapis utama)
  *
  * Buat hash kata sandi:  npm run hash -- "katasandiku"
  */
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { json } from './http.js';
 
 const NAMA_COOKIE = 'xy_adm';
 const UMUR_SESI = 1000 * 60 * 60 * 12; // 12 jam
@@ -44,10 +48,11 @@ function hapus(res) {
 function rahasia() {
   const s = process.env.SESSION_SECRET;
   if (s && s.length >= 16) return s;
-  // fallback acak per proses: sesi hangus saat server restart, tetapi tetap aman
+  // fallback acak per proses: di serverless sesi hangus tiap cold start,
+  // jadi SESSION_SECRET HARUS diisi di lingkungan deployment.
   if (!globalThis.__xySesiRahasia) {
     globalThis.__xySesiRahasia = crypto.randomBytes(32).toString('hex');
-    console.warn('[auth] SESSION_SECRET belum diatur — memakai rahasia sementara. Sesi hangus tiap restart.');
+    console.warn('[auth] SESSION_SECRET belum diatur — memakai rahasia sementara. Sesi hangus tiap instans baru.');
   }
   return globalThis.__xySesiRahasia;
 }
@@ -83,13 +88,17 @@ const JEDA = 1000 * 60 * 10; // 10 menit
 function ipDari(req) {
   return (req.headers['cf-connecting-ip'] ||
     String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-    req.socket.remoteAddress || 'tak-dikenal');
+    req.socket.remoteAddress ||
+    'tak-dikenal');
 }
 
 function terkunci(ip) {
   const c = percobaan.get(ip);
   if (!c) return 0;
-  if (Date.now() > c.sampai) { percobaan.delete(ip); return 0; }
+  if (Date.now() > c.sampai) {
+    percobaan.delete(ip);
+    return 0;
+  }
   return c.n >= MAKS ? Math.ceil((c.sampai - Date.now()) / 1000) : 0;
 }
 
@@ -132,43 +141,44 @@ async function verifikasiTurnstile(token, ip) {
 /* ---------- middleware ---------- */
 export function wajibMasuk(req, res, next) {
   const sesi = periksa(baca(req)[NAMA_COOKIE]);
-  if (!sesi) return res.status(401).json({ error: 'Belum masuk', kode: 'AUTH' });
+  if (!sesi) return json(res, 401, { error: 'Belum masuk', kode: 'AUTH' });
   req.admin = sesi;
   next();
 }
 
 /* ---------- rute ---------- */
-export function pasangAuth(app) {
-  const PENGGUNA = process.env.ADMIN_USER || 'admin';
-  const HASH = process.env.ADMIN_PASS_HASH || '';
-
-  app.get('/api/auth/konfig', (_req, res) => {
-    res.json({
+// Catatan: env dibaca di dalam handler (lazy), karena .env lokal dimuat
+// setelah modul diimpor — di Vercel env memang sudah ada sejak awal.
+export function pasangAuth(r) {
+  r.jalan('GET', '/api/auth/konfig', (_req, res) => {
+    json(res, 200, {
       turnstile: turnstileAktif(),
       siteKey: process.env.TURNSTILE_SITE_KEY || '',
-      siapPakai: Boolean(HASH),
+      siapPakai: Boolean(process.env.ADMIN_PASS_HASH),
     });
   });
 
-  app.get('/api/auth/saya', (req, res) => {
+  r.jalan('GET', '/api/auth/saya', (req, res) => {
     const sesi = periksa(baca(req)[NAMA_COOKIE]);
-    if (!sesi) return res.status(401).json({ masuk: false });
-    res.json({ masuk: true, pengguna: sesi.u, kedaluwarsa: sesi.exp });
+    if (!sesi) return json(res, 401, { masuk: false });
+    json(res, 200, { masuk: true, pengguna: sesi.u, kedaluwarsa: sesi.exp });
   });
 
-  app.post('/api/auth/masuk', async (req, res) => {
+  r.jalan('POST', '/api/auth/masuk', async (req, res) => {
+    const PENGGUNA = process.env.ADMIN_USER || 'admin';
+    const HASH = process.env.ADMIN_PASS_HASH || '';
     const ip = ipDari(req);
 
     const sisa = terkunci(ip);
     if (sisa) {
-      return res.status(429).json({
+      return json(res, 429, {
         error: `Terlalu banyak percobaan. Coba lagi dalam ${Math.ceil(sisa / 60)} menit.`,
       });
     }
 
     if (!HASH) {
-      return res.status(500).json({
-        error: 'ADMIN_PASS_HASH belum diatur di .env. Jalankan: npm run hash -- "katasandi"',
+      return json(res, 500, {
+        error: 'ADMIN_PASS_HASH belum diatur. Jalankan: npm run hash -- "katasandi"',
       });
     }
 
@@ -177,7 +187,7 @@ export function pasangAuth(app) {
     const ts = await verifikasiTurnstile(turnstile, ip);
     if (!ts.ok) {
       catatGagal(ip);
-      return res.status(400).json({ error: ts.pesan });
+      return json(res, 400, { error: ts.pesan });
     }
 
     const namaCocok = crypto.timingSafeEqual(
@@ -190,7 +200,7 @@ export function pasangAuth(app) {
       catatGagal(ip);
       const c = percobaan.get(ip);
       const tersisa = Math.max(0, MAKS - (c?.n ?? 0));
-      return res.status(401).json({
+      return json(res, 401, {
         error: 'Nama pengguna atau kata sandi salah.',
         tersisa,
       });
@@ -199,11 +209,11 @@ export function pasangAuth(app) {
     percobaan.delete(ip);
     const exp = Date.now() + UMUR_SESI;
     pasang(res, tandatangani({ u: PENGGUNA, exp }), UMUR_SESI);
-    res.json({ ok: true, pengguna: PENGGUNA, kedaluwarsa: exp });
+    json(res, 200, { ok: true, pengguna: PENGGUNA, kedaluwarsa: exp });
   });
 
-  app.post('/api/auth/keluar', (_req, res) => {
+  r.jalan('POST', '/api/auth/keluar', (_req, res) => {
     hapus(res);
-    res.json({ ok: true });
+    json(res, 200, { ok: true });
   });
 }

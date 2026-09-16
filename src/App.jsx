@@ -6,7 +6,11 @@ import Login from './Login.jsx';
 import Deploy from './Deploy.jsx';
 import { ToastHost, usePesan, Skeleton, Memuat, Alert, Btn, Modal } from './UI.jsx';
 
-const SITE = 'http://localhost:4321';
+// Lokal: Astro dev server. Produksi: domain situs (bisa ditimpa VITE_SITE_URL).
+const SITE = import.meta.env.DEV
+  ? 'http://localhost:4321'
+  : import.meta.env.VITE_SITE_URL || 'https://xyverse.my.id';
+const SITE_LANG = import.meta.env.VITE_SITE_LANG || 'id';
 
 /* ============ GERBANG AUTENTIKASI ============ */
 export default function App() {
@@ -313,7 +317,7 @@ function List({ col, go, say, onChange }) {
                       <div className="acts">
                         {!it.draft && (
                           <a className="btn btn-g icon" title="Lihat di situs"
-                            href={`${SITE}/${col}/${it.slug}/`} target="_blank" rel="noreferrer"><I.eye /></a>
+                            href={`${SITE}/${SITE_LANG}/${col}/${it.slug}/`} target="_blank" rel="noreferrer"><I.eye /></a>
                         )}
                         <button className="btn btn-g icon" title="Ubah"
                           onClick={() => go({ name: 'edit', col, slug: it.slug })}><I.edit /></button>
