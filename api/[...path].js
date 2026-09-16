@@ -5,7 +5,7 @@
  * (server/core.js), jadi perilaku lokal dan produksi identik.
  *
  * Konfigurasi:
- * - runtime nodejs (bukan edge) — dipakai untuk crypto/bcryptjs
+ * - runtime 'nodejs' (bukan edge) — dipakai untuk crypto/bcryptjs
  * - maxDuration 60 dtk: cukup untuk pemanggilan Groq terpanjang
  *   (draf-penuh = 3 tahap berurutan). Naikkan di vercel.json bila
  *   memakai plan yang mendukung batas lebih besar.
@@ -13,7 +13,7 @@
 import { tanganiApi } from '../server/core.js';
 
 export const config = {
-  runtime: 'nodejs22.x',
+  runtime: 'nodejs',
   maxDuration: 60,
 };
 
