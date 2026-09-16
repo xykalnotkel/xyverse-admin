@@ -41,7 +41,13 @@ function petaGalat(status, pesan, headers = null) {
     const reset = headers?.get?.('x-ratelimit-reset');
     const rateLimit = /rate limit/i.test(pesan) || status === 429 || sisa === '0';
     if (rateLimit) {
-      const kapan = reset ? waktuRelatif(new Date(Number(reset) * 1000).toISOString()) : 'beberapa menit';
+      let kapan = 'beberapa menit';
+      if (reset) {
+        const detik = Math.max(0, Math.ceil((Number(reset) * 1000 - Date.now()) / 1000));
+        kapan = detik < 60
+          ? 'kurang dari 1 menit'
+          : waktuRelatif(new Date(Number(reset) * 1000).toISOString());
+      }
       return new Galat(
         `Limit panggilan GitHub tercapai — coba lagi dalam ${kapan}. ` +
           (CFG.token()
