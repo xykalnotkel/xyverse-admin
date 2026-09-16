@@ -463,3 +463,18 @@ tbody tr:hover{background:var(--surface)}
 .sme svg{width:14px;height:14px;color:var(--brand);flex:none}
 .sme span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
 .mb{margin-bottom:16px}
+
+/* ---------- TAB PROYEK DEPLOY ---------- */
+.ptabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-bottom:18px}
+.ptab{
+  display:flex;align-items:center;gap:11px;text-align:left;font:inherit;cursor:pointer;
+  background:linear-gradient(180deg,var(--btn-g-1),var(--btn-g-2));
+  border:1px solid var(--btn-g-br);border-radius:var(--r);padding:12px 14px;color:var(--txt-2);
+  box-shadow:inset 0 1px 0 var(--btn-g-in);transition:border-color .13s var(--ease),color .13s var(--ease);
+}
+.ptab:hover{border-color:var(--btn-g-brh);color:var(--txt)}
+.ptab.on{border-color:var(--pur);color:var(--txt);background:linear-gradient(180deg,rgba(124,58,237,.16),rgba(124,58,237,.07))}
+.ptab svg{width:19px;height:19px;flex:none;color:var(--brand)}
+.ptab span{display:flex;flex-direction:column;min-width:0}
+.ptab strong{font-size:14px;font-weight:600;color:var(--txt)}
+.ptab small{font-size:11.5px;color:var(--txt-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

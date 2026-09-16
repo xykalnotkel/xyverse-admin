@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="id" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Push ke GitHub · Xyverse</title>
+<link rel="icon" href="/mark.webp" />
+<style>
+  :root{
+    --pur:#7c3aed; --pur-d:#6d28d9; --pur-l:#9f7aea;
+    --r:10px; --rb:6px; --ease:cubic-bezier(.22,.8,.3,1);
+    --bg:#0d0b14; --bg-2:#14111d; --surface:#1a1626; --card:#16131f;
+    --txt:#f1eff5; --txt-2:#9c97ad; --brand:#9f7aea;
+    --line:rgba(255,255,255,.08); --line-s:rgba(255,255,255,.14);
+    --ok:#34d399; --ok-bg:rgba(52,211,153,.1); --ok-br:rgba(52,211,153,.3);
+    --err:#f87171; --err-bg:rgba(248,113,113,.1); --err-br:rgba(248,113,113,.3);
+    --warn:#fbbf24; --warn-bg:rgba(251,191,36,.1); --warn-br:rgba(251,191,36,.3);
+    --info:#60a5fa; --info-bg:rgba(96,165,250,.1); --info-br:rgba(96,165,250,.3);
+    --btn-g-1:#211c2e; --btn-g-2:#191525; --btn-g-br:rgba(255,255,255,.11);
+    --btn-g-1h:#282237; --btn-g-2h:#1e1930; --btn-g-brh:rgba(255,255,255,.18);
+    --btn-g-in:rgba(255,255,255,.07); --btn-g-amb:rgba(0,0,0,.35);
+    --skel-1:#1c1828; --skel-2:#262034;
+  }
+  [data-theme=light]{
+    --bg:#fff; --bg-2:#f7f6f9; --surface:#f2f0f6; --card:#fff;
+    --txt:#16121f; --txt-2:#5c5670; --brand:#6d28d9;
+    --line:rgba(16,12,31,.1); --line-s:rgba(16,12,31,.17);
+    --ok:#047857; --ok-bg:rgba(4,120,87,.08); --ok-br:rgba(4,120,87,.26);
+    --err:#b91c1c; --err-bg:rgba(185,28,28,.08); --err-br:rgba(185,28,28,.26);
+    --warn:#b45309; --warn-bg:rgba(180,83,9,.08); --warn-br:rgba(180,83,9,.26);
+    --info:#1d4ed8; --info-bg:rgba(29,78,216,.08); --info-br:rgba(29,78,216,.26);
+    --btn-g-1:#fff; --btn-g-2:#f1eff5; --btn-g-br:rgba(16,12,31,.15);
+    --btn-g-1h:#fff; --btn-g-2h:#e9e6ef; --btn-g-brh:rgba(16,12,31,.24);
+    --btn-g-in:rgba(255,255,255,.9); --btn-g-amb:rgba(16,12,31,.1);
+    --skel-1:#eceaf1; --skel-2:#f6f5f8;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--txt); line-height:1.6;
+    -webkit-font-smoothing:antialiased; padding:28px 20px 60px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+
+  header.hd{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+  header.hd img{width:44px;height:44px;border-radius:9px;flex:none}
+  header.hd h1{font-size:22px;letter-spacing:-.02em}
+  header.hd p{font-size:13.5px;color:var(--txt-2)}
+  .spacer{flex:1}
+
+  .tbtn{
+    display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:13px;cursor:pointer;
+    color:var(--txt);background:linear-gradient(180deg,var(--btn-g-1),var(--btn-g-2));
+    border:1px solid var(--btn-g-br);border-radius:var(--rb);padding:7px 12px;
+  }
+  .tbtn:hover{border-color:var(--btn-g-brh)}
+
+  /* ---- token global ---- */
+  .tokenbar{
+    background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);
+    padding:18px 20px;margin:20px 0 22px;
+  }
+  .tokenbar h2{font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .tokenbar .sub{font-size:12.5px;color:var(--txt-2);margin-bottom:13px}
+
+  label.lb{display:block;font-size:12.5px;font-weight:600;color:var(--txt-2);margin-bottom:6px}
+  input[type=text],input[type=password]{
+    width:100%;font:inherit;font-size:14px;color:var(--txt);background:var(--surface);
+    border:1px solid var(--line-s);border-radius:var(--rb);padding:9px 11px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.18);transition:border-color .13s var(--ease);
+  }
+  input:focus{outline:0;border-color:var(--pur);box-shadow:inset 0 1px 2px rgba(0,0,0,.18),0 0 0 3px rgba(124,58,237,.18)}
+  input::placeholder{color:var(--txt-2);opacity:.65}
+  .ic-wrap{position:relative;display:flex;align-items:center}
+  .ic-wrap input{padding-right:40px}
+  .peek{
+    position:absolute;right:6px;width:28px;height:28px;border:0;border-radius:5px;background:none;
+    color:var(--txt-2);cursor:pointer;display:grid;place-items:center;font-size:11px;font-weight:700;
+  }
+  .peek:hover{background:var(--card);color:var(--txt)}
+  .hint{font-size:12px;color:var(--txt-2);margin-top:7px;line-height:1.55}
+
+  /* ---- grid proyek ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px}
+  @media(max-width:920px){.grid{grid-template-columns:1fr}}
+
+  .proj{
+    background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  .phd{display:flex;align-items:center;gap:11px;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--card)}
+  .pico{
+    width:34px;height:34px;border-radius:8px;display:grid;place-items:center;flex:none;
+    background:linear-gradient(180deg,#8b5cf6,#7c3aed);color:#fff;font-weight:700;font-size:14px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+  }
+  .phd h3{font-size:15.5px;letter-spacing:-.01em}
+  .phd .ket{font-size:12px;color:var(--txt-2)}
+  .pbd{padding:18px;display:flex;flex-direction:column;gap:14px;flex:1}
+
+  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--rb);padding:10px 12px}
+  .stat .k{font-size:11px;color:var(--txt-2);margin-bottom:3px}
+  .stat .v{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  .pill{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:99px;
+    background:var(--surface);border:1px solid var(--line-s);color:var(--txt-2)}
+  .pill.ok{background:var(--ok-bg);border-color:var(--ok-br);color:var(--ok)}
+  .pill.wr{background:var(--warn-bg);border-color:var(--warn-br);color:var(--warn)}
+  .pill.er{background:var(--err-bg);border-color:var(--err-br);color:var(--err)}
+
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+  /* ---- tombol glossy ---- */
+  .btn{
+    position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+    border-radius:var(--rb);padding:9px 15px;border:1px solid transparent;
+    transition:background .13s var(--ease),border-color .13s var(--ease),transform .06s var(--ease);
+    overflow:hidden;color:var(--txt);
+  }
+  .btn::before{
+    content:'';position:absolute;inset:1px 1px auto 1px;height:46%;border-radius:5px 5px 3px 3px;
+    background:linear-gradient(180deg,rgba(255,255,255,.17),rgba(255,255,255,0));pointer-events:none;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .btn-p{
+    color:#fff;background:linear-gradient(180deg,#8b5cf6,#7c3aed);border-color:#6d28d9;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 1px 0 #5b21b6,0 2px 4px rgba(20,10,50,.28);
+  }
+  .btn-p:hover:not(:disabled){background:linear-gradient(180deg,#9670f7,#8348ec)}
+  .btn-g{
+    background:linear-gradient(180deg,var(--btn-g-1),var(--btn-g-2));border-color:var(--btn-g-br);
+    box-shadow:inset 0 1px 0 var(--btn-g-in),0 1px 2px var(--btn-g-amb);
+  }
+  .btn-g:hover:not(:disabled){background:linear-gradient(180deg,var(--btn-g-1h),var(--btn-g-2h));border-color:var(--btn-g-brh)}
+  .btn.full{width:100%}
+  .btn.is-load{color:transparent!important;pointer-events:none}
+  .btn.is-load::after{
+    content:'';position:absolute;inset:0;margin:auto;width:15px;height:15px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.3);border-top-color:#fff;animation:sp .6s linear infinite;
+  }
+  .btn-g.is-load::after{border-color:var(--line-s);border-top-color:var(--txt)}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .spin{
+    display:inline-block;width:13px;height:13px;border-radius:50%;vertical-align:-2px;
+    border:2px solid var(--line-s);border-top-color:var(--brand);animation:sp .6s linear infinite;
+  }
+
+  .step{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--txt-2);
+    padding-top:4px;border-top:1px solid var(--line);margin-top:2px}
+
+  .alert{display:flex;gap:10px;font-size:13px;border-radius:var(--rb);padding:11px 13px;border:1px solid;line-height:1.55}
+  .alert.ok{background:var(--ok-bg);border-color:var(--ok-br);color:var(--ok)}
+  .alert.err{background:var(--err-bg);border-color:var(--err-br);color:var(--err)}
+  .alert.warn{background:var(--warn-bg);border-color:var(--warn-br);color:var(--warn)}
+  .alert.info{background:var(--info-bg);border-color:var(--info-br);color:var(--info)}
+  .alert a{color:inherit;font-weight:700}
+  .alert b{display:block;margin-bottom:2px}
+
+  .log{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;
+    background:var(--bg);border:1px solid var(--line);border-radius:var(--rb);padding:11px 13px;
+    white-space:pre-wrap;word-break:break-word;color:var(--txt-2);max-height:190px;overflow:auto;
+  }
+  .files{display:flex;flex-wrap:wrap;gap:5px;max-height:104px;overflow:auto}
+  .files code{font-family:ui-monospace,monospace;font-size:11px;background:var(--surface);
+    border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:var(--txt-2)}
+
+  details.adv summary{font-size:12.5px;color:var(--txt-2);cursor:pointer;user-select:none;padding:2px 0}
+  details.adv summary:hover{color:var(--txt)}
+  details.adv[open] summary{margin-bottom:11px}
+  .sk{background:linear-gradient(90deg,var(--skel-1) 25%,var(--skel-2) 50%,var(--skel-1) 75%);
+    background-size:200% 100%;animation:shim 1.3s infinite;border-radius:var(--rb);height:54px}
+  @keyframes shim{to{background-position:-200% 0}}
+
+  .allbar{display:flex;gap:10px;align-items:center;margin-top:22px;flex-wrap:wrap}
+  footer.ft{margin-top:26px;font-size:12px;color:var(--txt-2);line-height:1.65;
+    border-top:1px solid var(--line);padding-top:16px}
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hd">
+    <img src="/mark.webp" alt="" onerror="this.style.display='none'" />
+    <div>
+      <h1>Push ke GitHub</h1>
+      <p>Kirim <strong>Website Xyverse</strong> dan <strong>Dashboard Admin</strong> ke repositori masing-masing</p>
+    </div>
+    <div class="spacer"></div>
+    <button class="tbtn" id="tema">Mode terang</button>
+  </header>
+
+  <div id="gerbang"></div>
+
+  <main id="isi" hidden>
+    <!-- token dipakai bersama kedua proyek -->
+    <section class="tokenbar">
+      <h2>Kredensial GitHub</h2>
+      <div class="sub">Dipakai untuk kedua proyek. Tidak disimpan di server dan tidak ditulis ke <span class="mono">.git/config</span>.</div>
+      <div class="row">
+        <div>
+          <label class="lb" for="pemilik">Pemilik / organisasi</label>
+          <input type="text" id="pemilik" placeholder="xykalnotkel" autocomplete="off" />
+        </div>
+        <div>
+          <label class="lb" for="token">Personal Access Token</label>
+          <div class="ic-wrap">
+            <input type="password" id="token" placeholder="ghp_… atau github_pat_…" autocomplete="off" />
+            <button class="peek" id="peek" type="button" aria-label="Tampilkan token">LIHAT</button>
+          </div>
+        </div>
+      </div>
+      <p class="hint">
+        Buat di <strong>GitHub → Settings → Developer settings → Personal access tokens</strong>.
+        Token klasik butuh cakupan <span class="mono">repo</span>; token fine-grained butuh
+        <em>Contents: Read and write</em> pada kedua repositori.
+        Token hilang saat halaman ditutup — hanya pemilik repo yang diingat di browser ini.
+      </p>
+    </section>
+
+    <div class="grid" id="grid">
+      <div class="sk"></div><div class="sk"></div>
+    </div>
+
+    <div class="allbar">
+      <button class="btn btn-p" id="semua">Commit &amp; push kedua proyek</button>
+      <button class="btn btn-g" id="segar">Segarkan status</button>
+      <span class="hint" style="margin:0">Menjalankan kedua kartu berurutan memakai pesan commit masing-masing.</span>
+    </div>
+
+    <footer class="ft">
+      Repositori harus <strong>sudah dibuat</strong> di GitHub (boleh kosong, tanpa README).
+      Halaman ini hanya berfungsi saat API admin berjalan dan kamu sudah masuk.
+      Berkas <span class="mono">.env</span> tidak pernah ikut ter-push — sudah masuk <span class="mono">.gitignore</span>.
+    </footer>
+  </main>
+</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+/* ---------- tema ---------- */
+const btnTema = $('#tema');
+function setTema(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem('xy-admin-theme', t);
+  btnTema.textContent = t === 'dark' ? 'Mode terang' : 'Mode gelap';
+}
+setTema(localStorage.getItem('xy-admin-theme') || 'dark');
+btnTema.onclick = () => setTema(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+
+/* ---------- token ---------- */
+$('#peek').onclick = () => {
+  const i = $('#token');
+  i.type = i.type === 'password' ? 'text' : 'password';
+  $('#peek').textContent = i.type === 'password' ? 'LIHAT' : 'TUTUP';
+};
+$('#pemilik').value = localStorage.getItem('xy-gh-pemilik') || '';
+$('#pemilik').oninput = (e) => localStorage.setItem('xy-gh-pemilik', e.target.value.trim());
+
+/* ---------- pemanggil API ---------- */
+async function api(url, opsi) {
+  const r = await fetch(url, opsi);
+  if (r.status === 401) { gerbangMasuk(); throw new Error('Sesi berakhir. Silakan masuk lagi.'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+/* ---------- gerbang autentikasi ---------- */
+function gerbangMasuk() {
+  $('#isi').hidden = true;
+  $('#gerbang').innerHTML =
+    '<div class="alert warn" style="margin-top:20px"><div>' +
+    '<b>Belum masuk</b>Halaman ini memerlukan sesi admin yang aktif. ' +
+    'Buka <a href="/">dashboard</a>, masuk di sana, lalu kembali ke halaman ini.' +
+    '</div></div>';
+}
+
+async function cekSesi() {
+  try {
+    const d = await fetch('/api/auth/saya').then((r) => (r.ok ? r.json() : null));
+    if (!d || !d.masuk) return gerbangMasuk();
+    $('#gerbang').innerHTML =
+      '<div class="alert info" style="margin-top:18px"><div>Masuk sebagai <strong>' +
+      esc(d.pengguna) + '</strong>. Sesi berlaku 12 jam.</div></div>';
+    $('#isi').hidden = false;
+    muatProyek();
+  } catch {
+    $('#gerbang').innerHTML =
+      '<div class="alert err" style="margin-top:20px"><div><b>API tidak dapat dihubungi</b>' +
+      'Pastikan server admin berjalan: <span class="mono">npm run dev</span> di folder xyverse-admin.</div></div>';
+  }
+}
+
+/* ---------- kartu proyek ---------- */
+const PESAN_BAWAAN = {
+  situs: 'Perbarui konten dan komponen situs',
+  admin: 'Perbarui dashboard admin',
+};
+const kartu = {};
+
+function render(p) {
+  const el = document.createElement('section');
+  el.className = 'proj';
+  el.innerHTML =
+    '<div class="phd">' +
+      '<div class="pico">' + (p.kunci === 'situs' ? 'W' : 'A') + '</div>' +
+      '<div><h3>' + esc(p.nama) + '</h3><div class="ket">' + esc(p.ket) + '</div></div>' +
+    '</div>' +
+    '<div class="pbd">' +
+      '<div class="stats" data-stats><div class="sk" style="height:48px"></div><div class="sk" style="height:48px"></div></div>' +
+      '<div data-berkas></div>' +
+      '<div class="step">1 · Commit</div>' +
+      '<div><label class="lb">Pesan commit</label>' +
+        '<input type="text" data-pesan value="' + esc(PESAN_BAWAAN[p.kunci] || 'Perbarui proyek') + '" /></div>' +
+      '<button class="btn btn-g full" data-commit>Buat commit</button>' +
+      '<div class="step">2 · Push</div>' +
+      '<div class="row">' +
+        '<div><label class="lb">Nama repositori</label>' +
+          '<input type="text" data-repo value="' + esc(localStorage.getItem('xy-repo-' + p.kunci) || p.repoBawaan) + '" /></div>' +
+        '<div><label class="lb">Cabang</label>' +
+          '<input type="text" data-cabang value="' + esc(localStorage.getItem('xy-cabang-' + p.kunci) || 'main') + '" /></div>' +
+      '</div>' +
+      '<button class="btn btn-p full" data-push>Push ke GitHub</button>' +
+      '<div data-hasil></div>' +
+      '<div data-log></div>' +
+    '</div>';
+
+  const o = {
+    p,
+    el,
+    stats: $('[data-stats]', el),
+    berkas: $('[data-berkas]', el),
+    pesan: $('[data-pesan]', el),
+    repo: $('[data-repo]', el),
+    cabang: $('[data-cabang]', el),
+    bCommit: $('[data-commit]', el),
+    bPush: $('[data-push]', el),
+    hasil: $('[data-hasil]', el),
+    log: $('[data-log]', el),
+  };
+  o.repo.oninput = () => localStorage.setItem('xy-repo-' + p.kunci, o.repo.value.trim());
+  o.cabang.oninput = () => localStorage.setItem('xy-cabang-' + p.kunci, o.cabang.value.trim());
+  o.bCommit.onclick = () => commit(o);
+  o.bPush.onclick = () => push(o);
+  kartu[p.kunci] = o;
+  return el;
+}
+
+function pesanAlert(o, tipe, isi) {
+  o.hasil.innerHTML = '<div class="alert ' + tipe + '" style="margin-top:2px"><div>' + isi + '</div></div>';
+}
+function tulisLog(o, teks) {
+  o.log.innerHTML = teks ? '<div class="log">' + esc(teks) + '</div>' : '';
+}
+
+async function status(o) {
+  try {
+    const s = await api('/api/git/status?proyek=' + o.p.kunci);
+    o.st = s;
+    const belum = s.belumDidorong < 0
+      ? '<span class="pill">belum ada upstream</span>'
+      : s.belumDidorong > 0
+        ? s.belumDidorong + ' <span class="pill wr">tertunda</span>'
+        : '<span class="pill ok">sinkron</span>';
+    o.stats.innerHTML =
+      '<div class="stat"><div class="k">Cabang</div><div class="v mono">' + esc(s.cabang) + '</div></div>' +
+      '<div class="stat"><div class="k">Belum di-commit</div><div class="v">' + s.berubah + ' ' +
+        (s.berubah > 0 ? '<span class="pill wr">perlu commit</span>' : '<span class="pill ok">bersih</span>') + '</div></div>' +
+      '<div class="stat"><div class="k">Belum di-push</div><div class="v">' + belum + '</div></div>' +
+      '<div class="stat"><div class="k">Total commit</div><div class="v">' + s.totalCommit + '</div></div>';
+
+    let b = '<details class="adv"><summary>Commit terakhir: ' + esc(s.terakhir) + '</summary>';
+    b += s.berkas && s.berkas.length
+      ? '<div class="files">' + s.berkas.map((f) => '<code>' + esc(f) + '</code>').join('') + '</div>'
+      : '<div class="hint" style="margin:0">Tidak ada berkas yang berubah.</div>';
+    b += '</details>';
+    o.berkas.innerHTML = b;
+
+    o.bCommit.disabled = s.berubah === 0;
+    o.bCommit.textContent = s.berubah === 0 ? 'Tidak ada perubahan' : 'Buat commit (' + s.berubah + ' berkas)';
+  } catch (e) {
+    o.stats.innerHTML = '';
+    pesanAlert(o, 'err', '<b>Gagal membaca status</b>' + esc(e.message));
+  }
+}
+
+async function commit(o) {
+  const pesan = o.pesan.value.trim();
+  if (!pesan) return pesanAlert(o, 'err', 'Pesan commit wajib diisi.');
+  o.bCommit.classList.add('is-load');
+  o.hasil.innerHTML = '';
+  try {
+    const d = await api('/api/git/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proyek: o.p.kunci, pesan }),
+    });
+    tulisLog(o, d.log);
+    pesanAlert(o, d.kosong ? 'info' : 'ok', d.kosong ? 'Tidak ada perubahan untuk di-commit.' : '<b>Commit dibuat</b>Lanjut ke langkah 2.');
+    await status(o);
+    return true;
+  } catch (e) {
+    pesanAlert(o, 'err', '<b>Commit gagal</b>' + esc(e.message));
+    return false;
+  } finally {
+    o.bCommit.classList.remove('is-load');
+  }
+}
+
+async function push(o) {
+  const token = $('#token').value.trim();
+  const pemilik = $('#pemilik').value.trim();
+  if (!token) return pesanAlert(o, 'err', 'Isi Personal Access Token di bagian atas halaman.');
+  if (!pemilik) return pesanAlert(o, 'err', 'Isi pemilik / organisasi di bagian atas halaman.');
+  const repo = o.repo.value.trim();
+  if (!repo) return pesanAlert(o, 'err', 'Nama repositori wajib diisi.');
+
+  o.bPush.classList.add('is-load');
+  o.hasil.innerHTML = '';
+  try {
+    const d = await api('/api/git/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proyek: o.p.kunci, token, pemilik, repo, cabang: o.cabang.value.trim() || 'main' }),
+    });
+    tulisLog(o, d.log);
+    pesanAlert(o, 'ok', '<b>Push berhasil</b><a href="' + esc(d.url) + '" target="_blank" rel="noreferrer">' + esc(d.url) + '</a>');
+    await status(o);
+    return true;
+  } catch (e) {
+    pesanAlert(o, 'err', '<b>Push gagal</b>' + esc(e.message));
+    return false;
+  } finally {
+    o.bPush.classList.remove('is-load');
+  }
+}
+
+/* ---------- aksi massal ---------- */
+$('#semua').onclick = async () => {
+  const b = $('#semua');
+  b.classList.add('is-load');
+  try {
+    for (const k of Object.keys(kartu)) {
+      const o = kartu[k];
+      if (o.st && o.st.berubah > 0) {
+        const ok = await commit(o);
+        if (!ok) continue;
+      }
+      await push(o);
+    }
+  } finally {
+    b.classList.remove('is-load');
+  }
+};
+
+$('#segar').onclick = async () => {
+  const b = $('#segar');
+  b.classList.add('is-load');
+  await Promise.all(Object.values(kartu).map(status));
+  b.classList.remove('is-load');
+};
+
+async function muatProyek() {
+  try {
+    const daftar = await api('/api/git/proyek');
+    const g = $('#grid');
+    g.innerHTML = '';
+    daftar.forEach((p) => g.appendChild(render(p)));
+    await Promise.all(daftar.map((p) => status(kartu[p.kunci])));
+  } catch (e) {
+    $('#grid').innerHTML = '<div class="alert err"><div><b>Gagal memuat daftar proyek</b>' + esc(e.message) + '</div></div>';
+  }
+}
+
+cekSesi();
+</script>
+</body>
+</html>

@@ -15,12 +15,43 @@ import { fileURLToPath } from 'node:url';
 const jalankan = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SITE = process.env.XY_SITE_DIR || path.resolve(__dirname, '../../xyverse-web');
+const ADMIN = process.env.XY_ADMIN_DIR || path.resolve(__dirname, '..');
+
+/** Daftar proyek yang boleh disentuh. Kunci dipakai sebagai ?proyek=<kunci>. */
+export const PROYEK = {
+  situs: {
+    kunci: 'situs',
+    nama: 'Website Xyverse',
+    ket: 'Situs publik Astro (xyverse.my.id)',
+    dir: SITE,
+    repoBawaan: 'xyverse-web',
+  },
+  admin: {
+    kunci: 'admin',
+    nama: 'Dashboard Admin',
+    ket: 'Panel React + API Express',
+    dir: ADMIN,
+    repoBawaan: 'xyverse-admin',
+  },
+};
+
+/** Pilih proyek dari query/body; tolak kunci yang tidak dikenal. */
+function ambilProyek(req) {
+  const k = String(req.query?.proyek || req.body?.proyek || 'situs');
+  const p = PROYEK[k];
+  if (!p) {
+    const e = new Error(`Proyek "${k}" tidak dikenal.`);
+    e.status = 400;
+    throw e;
+  }
+  return p;
+}
 
 const r = Router();
 
-async function git(args, opts = {}) {
+async function git(args, dir, opts = {}) {
   const { stdout, stderr } = await jalankan('git', args, {
-    cwd: SITE,
+    cwd: dir,
     maxBuffer: 1024 * 1024 * 8,
     timeout: 120000,
     ...opts,
@@ -35,28 +66,42 @@ function bersihkan(teks, token) {
   return t.replace(/https:\/\/[^@\s]+@/g, 'https://***@');
 }
 
+/* ---------- daftar proyek ---------- */
+r.get('/git/proyek', (_req, res) => {
+  res.json(Object.values(PROYEK).map(({ kunci, nama, ket, dir, repoBawaan }) => ({
+    kunci, nama, ket, dir, repoBawaan,
+  })));
+});
+
 /* ---------- status repo ---------- */
-r.get('/git/status', async (_req, res) => {
+r.get('/git/status', async (req, res) => {
+  let P;
+  try { P = ambilProyek(req); } catch (e) { return res.status(400).json({ error: e.message }); }
+  const d = P.dir;
   try {
     const [cabang, kotor, terakhir, remote, jumlah] = await Promise.all([
-      git(['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => '-'),
-      git(['status', '--porcelain']).catch(() => ''),
-      git(['log', '-1', '--pretty=%h · %s · %cr']).catch(() => '-'),
-      git(['remote', 'get-url', 'origin']).catch(() => ''),
-      git(['rev-list', '--count', 'HEAD']).catch(() => '0'),
+      git(['rev-parse', '--abbrev-ref', 'HEAD'], d).catch(() => '-'),
+      git(['status', '--porcelain'], d).catch(() => ''),
+      git(['log', '-1', '--pretty=%h · %s · %cr'], d).catch(() => '-'),
+      git(['remote', 'get-url', 'origin'], d).catch(() => ''),
+      git(['rev-list', '--count', 'HEAD'], d).catch(() => '0'),
     ]);
 
     const berkas = kotor ? kotor.split('\n').filter(Boolean) : [];
     let belumDidorong = 0;
     try {
-      const n = await git(['rev-list', '--count', '@{u}..HEAD']);
+      const n = await git(['rev-list', '--count', '@{u}..HEAD'], d);
       belumDidorong = Number(n) || 0;
     } catch {
       belumDidorong = -1; // belum ada upstream
     }
 
     res.json({
-      dir: SITE,
+      proyek: P.kunci,
+      nama: P.nama,
+      ket: P.ket,
+      repoBawaan: P.repoBawaan,
+      dir: P.dir,
       cabang,
       terakhir,
       remote: bersihkan(remote),
@@ -73,18 +118,21 @@ r.get('/git/status', async (_req, res) => {
 
 /* ---------- commit ---------- */
 r.post('/git/commit', async (req, res) => {
+  let P;
+  try { P = ambilProyek(req); } catch (e) { return res.status(400).json({ error: e.message }); }
+  const d = P.dir;
   const pesan = String(req.body?.pesan || '').trim();
   if (!pesan) return res.status(400).json({ error: 'Pesan commit wajib diisi.' });
   try {
-    await git(['add', '-A']);
-    const kotor = await git(['status', '--porcelain']);
+    await git(['add', '-A'], d);
+    const kotor = await git(['status', '--porcelain'], d);
     if (!kotor) return res.json({ ok: true, kosong: true, log: 'Tidak ada perubahan untuk di-commit.' });
 
     const log = await git([
       '-c', 'user.email=halo@xyverse.my.id',
       '-c', 'user.name=Xyverse',
       'commit', '-m', pesan,
-    ]);
+    ], d);
     res.json({ ok: true, log: bersihkan(log) });
   } catch (e) {
     res.status(500).json({ error: bersihkan(e.message) });
@@ -93,6 +141,9 @@ r.post('/git/commit', async (req, res) => {
 
 /* ---------- push ---------- */
 r.post('/git/push', async (req, res) => {
+  let P;
+  try { P = ambilProyek(req); } catch (e) { return res.status(400).json({ error: e.message }); }
+  const d = P.dir;
   const { token = '', pemilik = '', repo = '', cabang = 'main', buatRemote = true } = req.body || {};
   if (!token) return res.status(400).json({ error: 'Token GitHub wajib diisi.' });
   if (!pemilik || !repo) return res.status(400).json({ error: 'Pemilik dan nama repo wajib diisi.' });
@@ -109,7 +160,7 @@ r.post('/git/push', async (req, res) => {
 
   try {
     // pastikan ada commit
-    const total = await git(['rev-list', '--count', 'HEAD']).catch(() => '0');
+    const total = await git(['rev-list', '--count', 'HEAD'], d).catch(() => '0');
     if (Number(total) === 0) {
       return res.status(400).json({ error: 'Repositori belum punya commit. Lakukan commit dulu.' });
     }
@@ -117,26 +168,27 @@ r.post('/git/push', async (req, res) => {
     // simpan remote bersih (tanpa token) agar repo tetap rapi
     if (buatRemote) {
       try {
-        await git(['remote', 'get-url', 'origin']);
-        await git(['remote', 'set-url', 'origin', urlBersih]);
+        await git(['remote', 'get-url', 'origin'], d);
+        await git(['remote', 'set-url', 'origin', urlBersih], d);
         langkah.push(`remote origin diperbarui → ${urlBersih}`);
       } catch {
-        await git(['remote', 'add', 'origin', urlBersih]);
+        await git(['remote', 'add', 'origin', urlBersih], d);
         langkah.push(`remote origin ditambahkan → ${urlBersih}`);
       }
     }
 
     // push memakai URL bertoken sekali jalan; tidak ditulis ke config
-    const hasil = await git(['push', '-u', urlToken, `HEAD:${cabang}`]);
+    const hasil = await git(['push', '-u', urlToken, `HEAD:${cabang}`], d);
     langkah.push(bersihkan(hasil, token) || 'push selesai');
 
     // pastikan upstream menunjuk ke URL bersih
     try {
-      await git(['branch', `--set-upstream-to=origin/${cabang}`]);
+      await git(['branch', `--set-upstream-to=origin/${cabang}`], d);
     } catch {}
 
     res.json({
       ok: true,
+      proyek: P.kunci,
       url: `https://github.com/${pemilik}/${repo}`,
       log: langkah.join('\n'),
     });

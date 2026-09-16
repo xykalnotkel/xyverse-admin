@@ -10,13 +10,15 @@ const j = async (r) => {
 
 export default function Deploy() {
   const say = usePesan();
+  const [daftar, setDaftar] = useState(null);
+  const [aktif, setAktif] = useState('situs');
   const [st, setSt] = useState(null);
   const [galat, setGalat] = useState('');
 
   const [pesan, setPesan] = useState('Perbarui konten dari dashboard');
   const [pemilik, setPemilik] = useState(() => localStorage.getItem('xy-gh-pemilik') || 'xykalnotkel');
-  const [repo, setRepo] = useState(() => localStorage.getItem('xy-gh-repo') || 'xyverse-web');
-  const [cabang, setCabang] = useState(() => localStorage.getItem('xy-gh-cabang') || 'main');
+  const [repo, setRepo] = useState('');
+  const [cabang, setCabang] = useState('main');
   const [token, setToken] = useState('');
   const [lihat, setLihat] = useState(false);
 
@@ -25,17 +27,32 @@ export default function Deploy() {
   const [log, setLog] = useState('');
   const [hasil, setHasil] = useState(null);
 
-  async function segarkan() {
+  async function segarkan(kunci = aktif) {
     setGalat('');
+    setSt(null);
     try {
-      setSt(await fetch('/api/git/status').then(j));
+      setSt(await fetch(`/api/git/status?proyek=${kunci}`).then(j));
     } catch (e) {
       setGalat(e.message);
       setSt({ gagal: true });
     }
   }
 
-  useEffect(() => { segarkan(); }, []);
+  // daftar proyek sekali di awal
+  useEffect(() => {
+    fetch('/api/git/proyek').then(j).then(setDaftar).catch((e) => setGalat(e.message));
+  }, []);
+
+  // ganti proyek -> muat ulang status + isi ulang form dari ingatan
+  useEffect(() => {
+    if (!daftar) return;
+    const p = daftar.find((x) => x.kunci === aktif);
+    setRepo(localStorage.getItem(`xy-repo-${aktif}`) || p?.repoBawaan || '');
+    setCabang(localStorage.getItem(`xy-cabang-${aktif}`) || 'main');
+    setPesan(aktif === 'admin' ? 'Perbarui dashboard admin' : 'Perbarui konten dari dashboard');
+    setLog(''); setHasil(null);
+    segarkan(aktif);
+  }, [aktif, daftar]);
 
   async function commit() {
     if (!pesan.trim()) return say('Pesan commit wajib diisi', 'err');
@@ -44,7 +61,7 @@ export default function Deploy() {
       const r = await fetch('/api/git/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pesan: pesan.trim() }),
+        body: JSON.stringify({ proyek: aktif, pesan: pesan.trim() }),
       }).then(j);
       setLog(r.log || '');
       say(r.kosong ? 'Tidak ada perubahan untuk di-commit' : 'Commit dibuat');
@@ -62,13 +79,16 @@ export default function Deploy() {
     setMuatP(true); setLog(''); setHasil(null);
     try {
       localStorage.setItem('xy-gh-pemilik', pemilik);
-      localStorage.setItem('xy-gh-repo', repo);
-      localStorage.setItem('xy-gh-cabang', cabang);
+      localStorage.setItem(`xy-repo-${aktif}`, repo);
+      localStorage.setItem(`xy-cabang-${aktif}`, cabang);
 
       const r = await fetch('/api/git/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.trim(), pemilik: pemilik.trim(), repo: repo.trim(), cabang: cabang.trim() }),
+        body: JSON.stringify({
+          proyek: aktif, token: token.trim(), pemilik: pemilik.trim(),
+          repo: repo.trim(), cabang: cabang.trim(),
+        }),
       }).then(j);
 
       setLog(r.log || '');
@@ -92,11 +112,32 @@ export default function Deploy() {
           <div className="sub">Commit perubahan dan kirim ke GitHub</div>
         </div>
         <div className="spacer" />
-        <Btn onClick={segarkan} k="icon" aria-label="Segarkan status"><I.refresh /></Btn>
+        <a className="btn btn-g" href="/push.html" target="_blank" rel="noreferrer">
+          <I.link /> Halaman push mandiri
+        </a>
+        <Btn onClick={() => segarkan()} k="icon" aria-label="Segarkan status"><I.refresh /></Btn>
       </header>
 
       <div className="body">
         {galat && <Alert tipe="err" k="mb">{galat}</Alert>}
+
+        {daftar && (
+          <div className="ptabs">
+            {daftar.map((p) => (
+              <button
+                key={p.kunci}
+                className={`ptab ${aktif === p.kunci ? 'on' : ''}`}
+                onClick={() => setAktif(p.kunci)}
+              >
+                <I.git />
+                <span>
+                  <strong>{p.nama}</strong>
+                  <small>{p.ket}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ---- status repo ---- */}
         {!st ? (
