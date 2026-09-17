@@ -36,8 +36,8 @@ Perbandingan dengan arsitektur lama (pre-Vercel):
 ## Struktur
 
 ```
-api/[...path].js     Function Vercel — gerbang /api/*
-server/core.js       Router inti (dipakai dev lokal & Vercel — 1 kode, 2 tempat)
+api/all.js           Function Vercel — gerbang /api/* (rewrite, lihat vercel.json)
+server/core.js       Router inti + daftar koleksi (dipakai dev lokal & Vercel)
 server/http.js       Mini router + utilitas (tanpa framework)
 server/auth.js       Login, cookie sesi HMAC, Turnstile, rate limit
 server/ai.js         Studio AI (Groq) — draf-penuh memakai pemanggilan internal
@@ -46,7 +46,50 @@ server/index.js      Dev server lokal (port 4500)
 src/                 SPA React (dasbor, editor, studio AI, panel deploy)
 public/push.html     Halaman status GitHub mandiri
 scripts/hash.js      Pembuat hash bcrypt
+scripts/uji-api.mjs  Uji asap router inti (GitHub API dipalsukan) — `npm test`
 ```
+
+## Koleksi & bahasa
+
+Empat koleksi, semuanya dua bahasa:
+
+| Koleksi | Folder ID | Folder EN | Kolom frontmatter |
+| ------- | --------- | --------- | ----------------- |
+| `blog`   | `src/content/blog/`   | `src/content/blog/en/`   | title, desc, date, kategori, penulis, baca, unggulan, draft, lang |
+| `proyek` | `src/content/proyek/` | `src/content/proyek/en/` | title, desc, date, klien, layanan, stack, status, unggulan, draft, lang |
+| `berita` | `src/content/berita/` | `src/content/berita/en/` | title, desc, date, tag, draft, lang |
+| `legal`  | `src/content/legal/`  | `src/content/legal/en/`  | title, desc, diperbarui, ringkas, lang |
+
+Semua rute konten menerima `?bahasa=id|en` (bawaan `id`):
+
+```
+GET    /api/blog?bahasa=en          daftar terjemahan Inggris
+GET    /api/blog/parsec-vs-rdp?bahasa=en
+PUT    /api/blog/parsec-vs-rdp?bahasa=en
+DELETE /api/blog/parsec-vs-rdp?bahasa=en
+```
+
+Dua aturan yang perlu diingat:
+
+- **`lang` ditentukan oleh folder tujuan, bukan oleh isi form.** Ini sengaja:
+  dulu `lang` tidak ada di whitelist field, sehingga menyimpan berkas `en/`
+  dari dashboard menghapus `lang: "en"` dan halaman EN hilang dari situs.
+- **Slug EN = slug ID.** Keduanya hidup di folder berbeda, jadi rename di
+  salah satu bahasa tidak menyentuh bahasa lainnya.
+
+`legal` tidak punya kolom `date` (skema situs memakai `diperbarui` berupa
+teks), jadi daftarnya diurutkan menurut judul, bukan tanggal.
+
+## Uji
+
+```bash
+npm test
+```
+
+Menjalankan `tanganiApi` (kode produksi yang sama dengan Vercel Function)
+dengan `fetch` GitHub dipalsukan. Mengunci perilaku: `lang` tetap tertulis
+untuk berkas `en/`, tanggal tersimpan `YYYY-MM-DD`, koleksi `legal` jalan,
+bahasa tak dikenal ditolak 400, dan rename EN tidak menyentuh berkas ID.
 
 ## Pengembangan lokal
 
@@ -55,6 +98,7 @@ npm install
 cp .env.example .env   # lalu isi GH_TOKEN, ADMIN_PASS_HASH, dll.
 npm run hash -- "katasandiku"   # salin hasil ke ADMIN_PASS_HASH
 npm run dev              # API :4500 + panel :4400 (Vite proxy /api)
+npm test                 # uji asap router inti
 ```
 
 Situsnya sendiri (untuk pratinjau langsung): `npm run dev` di folder
@@ -118,6 +162,7 @@ menunjuk ke sana saat mode dev.
 - **Sesi**: cookie HMAC stateless (valid lintas instans serverless) selama
   `SESSION_SECRET` konsisten. Rate limit login per IP bekerja per instans —
   tetap efektif memperlambat, ditambah Turnstile sebagai lapis utama.
-- **Konten terjemahan**: CRUD mengelola berkas bahasa utama
-  (`src/content/{blog,proyek,berita}/*.md`); folder `en/` dikelola terpisah
-  di repositori.
+- **Konten terjemahan**: CRUD mengelola kedua bahasa. Pengalih ID/EN ada di
+  bilah daftar; folder `en/` dibaca dan ditulis lewat `?bahasa=en`.
+- **Uji sebelum merge**: `npm test`. Terhadap kode sebelum perbaikan `lang`,
+  16 pemeriksaannya gagal — jadi uji ini memang menangkap regresi itu.
