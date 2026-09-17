@@ -9,6 +9,12 @@ export default defineConfig({
     allowedHosts: ['.e2b.app', 'localhost', '127.0.0.1'],
     hmr: { clientPort: 443, protocol: 'wss' },
     // browser memanggil /api lewat origin yang sama, lalu di-proxy ke API lokal
-    proxy: { '/api': { target: 'http://127.0.0.1:4500', changeOrigin: true } },
+    // /api  -> router inti
+    // /media -> cermin gambar lokal (lihat server/cermin.js). Di produksi
+    //           gambar dilayani Vercel dari hasil build repo situs.
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:4500', changeOrigin: true },
+      '/media': { target: 'http://127.0.0.1:4500', changeOrigin: true },
+    },
   },
 });

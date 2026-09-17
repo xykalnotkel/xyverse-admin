@@ -102,11 +102,32 @@ export async function bacaIsiBercabang(repo, pathFile, cabang) {
   return r.text();
 }
 
-/** Daftarkan isi direktori (file & folder). */
-export async function daftarDirektori(repo, pathDir) {
+/**
+ * Daftarkan isi direktori (file & folder).
+ *
+ * GitHub Contents API memakai `per_page` bawaan 30 dan TIDAK memberi tanda
+ * bahwa masih ada halaman berikutnya selain lewat header `Link`. Tanpa
+ * paginasi, pustaka gambar yang lewat 30 berkas akan terpotong diam-diam —
+ * jadi halaman demi halaman diambil sampai header Link-nya habis.
+ */
+export async function daftarDirektori(repo, pathDir, cabang = CFG.cabang()) {
   const p = segmen(pathDir);
-  const data = await panggil(`/repos/${repo}/contents/${p}?ref=${CFG.cabang()}`);
-  return Array.isArray(data) ? data : [];
+  const out = [];
+  let url = `${API}/repos/${repo}/contents/${p}?ref=${encodeURIComponent(cabang)}&per_page=100`;
+
+  for (let i = 0; i < 30 && url; i += 1) {
+    const r = await fetch(url, { headers: kepala() });
+    if (r.status === 404) return out; // folder belum ada = kosong
+    if (!r.ok) throw petaGalat(r.status, 'Gagal membaca daftar direktori dari GitHub.', r.headers);
+    const data = await r.json();
+    if (Array.isArray(data)) out.push(...data);
+
+    // Ambil URL halaman berikutnya dari header Link bila ada.
+    const link = r.headers.get('link') || '';
+    const next = link.match(/<([^>]+)>;\s*rel="next"/);
+    url = next ? next[1] : null;
+  }
+  return out;
 }
 
 async function ambilSHA(repo, pathFile, cabang = CFG.cabang()) {
@@ -120,7 +141,11 @@ export async function tulisBerkas(repo, pathFile, isi, pesan) {
   return tulisBerkasBercabang(repo, pathFile, isi, pesan, CFG.cabang());
 }
 
-/** Sama seperti tulisBerkas, tetapi cabangnya ditentukan pemanggil. */
+/**
+ * Sama seperti tulisBerkas, tetapi cabangnya ditentukan pemanggil.
+ * `isi` boleh string (teks) atau Buffer (biner, mis. gambar) — keduanya
+ * dikirim sebagai base64, itu yang diminta Contents API.
+ */
 export async function tulisBerkasBercabang(repo, pathFile, isi, pesan, cabang) {
   if (!CFG.token())
     throw new Galat(
@@ -131,7 +156,7 @@ export async function tulisBerkasBercabang(repo, pathFile, isi, pesan, cabang) {
   const ada = await ambilSHA(repo, pathFile, cabang).catch(() => null);
   const muatan = {
     message: pesan,
-    content: Buffer.from(isi, 'utf8').toString('base64'),
+    content: Buffer.isBuffer(isi) ? isi.toString('base64') : Buffer.from(isi, 'utf8').toString('base64'),
     branch: cabang,
   };
   if (ada) muatan.sha = ada;

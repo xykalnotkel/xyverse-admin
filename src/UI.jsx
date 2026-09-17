@@ -198,7 +198,7 @@ export function Dropdown({ nilai, opsi, onPilih, label, lebar, kanan = false }) 
 }
 
 /* ============================ MODAL ============================ */
-export function Modal({ judul, children, aksi, onTutup }) {
+export function Modal({ judul, children, aksi, onTutup, lebar = false }) {
   useEffect(() => {
     const esc = (e) => e.key === 'Escape' && onTutup();
     document.addEventListener('keydown', esc);
@@ -211,7 +211,7 @@ export function Modal({ judul, children, aksi, onTutup }) {
 
   return (
     <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onTutup()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={judul}>
+      <div className={`modal ${lebar ? "lebar" : ""}`} role="dialog" aria-modal="true" aria-label={judul}>
         <div className="modal-hd">
           <h2>{judul}</h2>
           <button className="btn btn-t icon" onClick={onTutup} aria-label="Tutup"><I.x /></button>

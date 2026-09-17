@@ -79,6 +79,14 @@ async function bacaDaftar() {
     // 404 = belum pernah ada kunci tersimpan. Itu keadaan normal, bukan error.
     if (e.status !== 404) throw e;
   }
+  // Entri lama ada yang menyimpan masa berlaku dalam DETIK. Tanpa ini, kunci
+  // berumur 90 hari terbaca kedaluwarsa pada tahun 58928 dan tidak pernah
+  // ditandai mati di panel.
+  for (const k of daftar) {
+    if (typeof k?.kedaluwarsa === 'number' && k.kedaluwarsa > 0 && k.kedaluwarsa < 1e12) {
+      k.kedaluwarsa *= 1000;
+    }
+  }
   cache.daftar = daftar;
   cache.waktu = Date.now();
   return daftar;
@@ -160,7 +168,65 @@ export async function daftarPublik() {
   return keluar;
 }
 
-/* ---------- buat & cabut ---------- */
+/* ---------- masa berlaku ---------- */
+
+/**
+ * Satu-satunya tempat yang menafsirkan nilai masa berlaku.
+ *
+ * Menerima:
+ *   - stempel waktu ms  (yang dikirim panel)
+ *   - stempel waktu DETIK — entri lama pernah menyimpan satuan ini; kalau
+ *     dibaca apa adanya jadi tahun 58928
+ *   - string tanggal/ISO ("2026-12-31", "2026-12-31T17:00:00Z")
+ *
+ * Mengembalikan `undefined` bila nilai tidak bermakna — ini PENTING: nilai
+ * yang tidak bisa dibaca tidak boleh diam-diam menjadi "selamanya", karena
+ * itu berarti tanggal yang salah ketik meloloskan kunci tanpa batas.
+ */
+export function normalKedaluwarsa(v) {
+  if (v === null || v === undefined || v === '' || v === false) return undefined;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return undefined;
+    // Batas 1e12 ms = 2001-09-09. Angka positif di bawah itu pasti detik.
+    return v < 1e12 ? v * 1000 : v;
+  }
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t) return undefined;
+    if (/^\d+$/.test(t)) return normalKedaluwarsa(Number(t));
+    const ms = Date.parse(t);
+    return Number.isNaN(ms) ? undefined : ms;
+  }
+  return undefined;
+}
+
+/**
+ * Ubah { kedaluwarsaHari, kedaluwarsaPada } menjadi stempel waktu (ms) atau
+ * null (= tidak pernah kedaluwarsa).
+ *
+ * `kedaluwarsaPada` adalah waktu mutlak dan menang bila keduanya diisi;
+ * `kedaluwarsaHari` umur dalam hari. Keduanya kosong -> tanpa batas.
+ * Melempar 400 bila yang dikirim adalah tanggal yang tidak bisa dibaca atau
+ * sudah lewat — diam-diam mengabaikannya lebih berbahaya daripada menolak.
+ */
+export function hitungKedaluwarsa({ kedaluwarsaHari = null, kedaluwarsaPada = null } = {}) {
+  const kini = Date.now();
+
+  const pada = normalKedaluwarsa(kedaluwarsaPada);
+  if (pada !== undefined) {
+    if (pada <= kini) throw new Galat('Tanggal kedaluwarsa sudah lewat.', 400);
+    return pada;
+  }
+  if (kedaluwarsaPada !== null && kedaluwarsaPada !== undefined && kedaluwarsaPada !== '') {
+    throw new Galat('Tanggal kedaluwarsa tidak terbaca. Pakai tanggal seperti 2026-12-31.', 400);
+  }
+
+  const hari = Number(kedaluwarsaHari);
+  if (Number.isFinite(hari) && hari > 0) return kini + hari * 86400000;
+  return null;
+}
+
+/* ---------- buat, ubah, cabut ---------- */
 
 export async function buat({ label = '', kedaluwarsaHari = null, kedaluwarsaPada = null } = {}) {
   const nama = String(label || '').trim().slice(0, 60);
@@ -169,15 +235,8 @@ export async function buat({ label = '', kedaluwarsaHari = null, kedaluwarsaPada
   const daftar = [...(await bacaDaftar())];
   if (daftar.length >= 20) throw new Galat('Maksimal 20 kunci. Cabut yang tidak terpakai dulu.', 400);
 
-  // `kedaluwarsaPada` adalah stempel waktu mutlak (ms). Dipakai oleh uji;
-  // antarmuka publik memakai `kedaluwarsaHari` yang lebih mudah dibaca.
-  const hari = Number(kedaluwarsaHari);
-  const exp =
-    Number.isFinite(kedaluwarsaPada) && kedaluwarsaPada > 0
-      ? kedaluwarsaPada
-      : Number.isFinite(hari) && hari > 0
-        ? Date.now() + hari * 86400000
-        : null;
+  // Melempar 400 bila tanggalnya lampau/tak terbaca — jangan bikin kuncinya.
+  const exp = hitungKedaluwarsa({ kedaluwarsaHari, kedaluwarsaPada });
 
   const teks = buatKunci();
   const h = hashSimpan(teks);
@@ -200,6 +259,40 @@ export async function buat({ label = '', kedaluwarsaHari = null, kedaluwarsaPada
     kunci: teks, // hanya di respons ini
     kedaluwarsa: exp,
     dibuat: entri.dibuat,
+  };
+}
+
+/**
+ * Ubah label dan/atau masa berlaku kunci yang sudah ada — tanpa membuat
+ * kunci baru, jadi agen yang memakainya tidak perlu di-setup ulang.
+ *
+ * Kirim `kedaluwarsaHari: 0` (atau `kedaluwarsaPada: 0`) untuk menghapus
+ * batas waktu dan membuatnya berlaku selamanya.
+ */
+export async function ubah(id, { label, kedaluwarsaHari, kedaluwarsaPada, hapusBatas = false } = {}) {
+  const daftar = await bacaDaftar();
+  const korban = daftar.find((k) => k.id === id);
+  if (!korban) throw new Galat('Kunci tidak ditemukan.', 404);
+
+  const adaLabel = typeof label === 'string' && label.trim();
+  const adaWaktu =
+    hapusBatas === true || kedaluwarsaHari != null || kedaluwarsaPada != null;
+  if (!adaLabel && !adaWaktu) throw new Galat('Tidak ada yang diubah.', 400);
+
+  const diperbarui = { ...korban };
+  if (adaLabel) diperbarui.label = label.trim().slice(0, 60);
+  if (hapusBatas === true) diperbarui.kedaluwarsa = null;
+  else if (adaWaktu) {
+    // hitungKedaluwarsa menolak tanggal lampau/tak terbaca dengan 400.
+    diperbarui.kedaluwarsa = hitungKedaluwarsa({ kedaluwarsaHari, kedaluwarsaPada });
+  }
+
+  const baru = daftar.map((k) => (k.id === id ? diperbarui : k));
+  await tulisDaftar(baru, `Ubah kunci API "${diperbarui.label}" (via dashboard)`);
+  return {
+    id: diperbarui.id,
+    label: diperbarui.label,
+    kedaluwarsa: diperbarui.kedaluwarsa || null,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, slugify, fmtTgl, BAHASA } from './api.js';
 import { I } from './Icons.jsx';
 import { PanelAI, StudioAI } from './AI.jsx';
@@ -6,12 +6,95 @@ import Login from './Login.jsx';
 import Deploy from './Deploy.jsx';
 import { ToastHost, usePesan, Skeleton, Memuat, Alert, Btn, Modal } from './UI.jsx';
 import KunciApi from './KunciApi.jsx';
+import { UnggahGambar } from './Unggah.jsx';
 
 // Lokal: Astro dev server. Produksi: domain situs (bisa ditimpa VITE_SITE_URL).
 const SITE = import.meta.env.DEV
   ? 'http://localhost:4321'
   : import.meta.env.VITE_SITE_URL || 'https://xyverse.my.id';
 const SITE_LANG = import.meta.env.VITE_SITE_LANG || 'id';
+
+/* ============ PEMBANTU EDITOR ============ */
+
+/** Kelas warna untuk penghitung panjang judul/deskripsi (SEO). */
+function panjangKelas(n, min, maks) {
+  const x = n || 0;
+  if (x === 0) return 'seo-n';
+  if (x < min) return 'seo-p';
+  if (x > maks) return 'seo-l';
+  return 'seo-ok';
+}
+
+/**
+ * Perender Markdown ringan untuk pratinjau di editor.
+ *
+ * Bukan pengganti markdown-it — hanya cukup untuk melihat bentuk tulisan.
+ * Situs merender ulang dari berkas aslinya lewat Astro, jadi yang dipakai
+ * produksi tetap perender Astro.
+ *
+ * Semua input di-escape lebih dulu, baru markup disisipkan. Karena itu
+ * `dangerouslySetInnerHTML` di sini tidak membuka lubang XSS.
+ */
+const escHtml = (s) =>
+  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const inline = (s) =>
+  escHtml(s)
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img src="$2" alt="$1" />')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+function renderMarkdown(teks) {
+  const baris = String(teks || '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let mode = null;      // 'ul' | 'ol' | null
+  let kode = false;
+  let kodeBuf = [];
+
+  const tutupDaftar = () => {
+    if (mode) { out.push(`</${mode}>`); mode = null; }
+  };
+
+  for (const mentah of baris) {
+    const b = mentah.trimEnd();
+
+    if (/^```/.test(b)) {
+      if (kode) { out.push(`<pre><code>${escHtml(kodeBuf.join('\n'))}</code></pre>`); kodeBuf = []; }
+      kode = !kode;
+      continue;
+    }
+    if (kode) { kodeBuf.push(mentah); continue; }
+
+    if (!b.trim()) { tutupDaftar(); continue; }
+
+    const h = b.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { tutupDaftar(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
+
+    if (/^>\s?/.test(b)) { tutupDaftar(); out.push(`<blockquote>${inline(b.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(b.trim())) { tutupDaftar(); out.push('<hr />'); continue; }
+
+    const li = b.match(/^\s*[-*+]\s+(.*)$/);
+    if (li) {
+      if (mode !== 'ul') { tutupDaftar(); out.push('<ul>'); mode = 'ul'; }
+      out.push(`<li>${inline(li[1])}</li>`);
+      continue;
+    }
+    const ol = b.match(/^\s*\d+\.\s+(.*)$/);
+    if (ol) {
+      if (mode !== 'ol') { tutupDaftar(); out.push('<ol>'); mode = 'ol'; }
+      out.push(`<li>${inline(ol[1])}</li>`);
+      continue;
+    }
+
+    tutupDaftar();
+    out.push(`<p>${inline(b)}</p>`);
+  }
+  if (kode) out.push(`<pre><code>${escHtml(kodeBuf.join('\n'))}</code></pre>`);
+  tutupDaftar();
+  return out.join('\n');
+}
 
 /* ============ GERBANG AUTENTIKASI ============ */
 export default function App() {
@@ -390,6 +473,9 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
   const [slugNow, setSlugNow] = useState('');
   const [loading, setLoading] = useState(!baru);
   const [saving, setSaving] = useState(false);
+  const [pratinjau, setPratinjau] = useState(false);
+  const [terj, setTerj] = useState(null);
+  const areaIsi = useRef(null);
 
   useEffect(() => {
     if (baru) return;
@@ -401,6 +487,12 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
       })
       .catch((e) => { say(e.message, true); setLoading(false); });
   }, [col, slug, bahasa, baru, say]);
+
+  // Apakah padanan bahasa lain sudah ada?
+  useEffect(() => {
+    if (!slugNow) return;
+    api.terjemahan(col, slugNow).then(setTerj).catch(() => setTerj(null));
+  }, [col, slugNow]);
 
   const set = (k, v) => setFm((p) => ({ ...p, [k]: v }));
   const slugFinal = baru ? slugify(fm.title || '') : slugNow;
@@ -423,6 +515,46 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
     finally { setSaving(false); }
   };
 
+  /** Sisipkan teks di posisi kursor area isi, atau di akhir bila tak ada fokus. */
+  const sisip = (teks) => {
+    const el = areaIsi.current;
+    const jarak = (t) => (t && !t.endsWith('\n\n') ? (t.endsWith('\n') ? '\n' : '\n\n') : '');
+    if (!el || document.activeElement !== el) return setBody((b) => b + jarak(b) + teks + '\n');
+    const awal = el.selectionStart;
+    const depan = body.slice(0, awal);
+    const belakang = body.slice(el.selectionEnd).replace(/^\n+/, '');
+    const next = depan + jarak(depan) + teks + '\n\n' + belakang;
+    setBody(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = (depan + jarak(depan) + teks).length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const simpanRef = useRef(simpan);
+  simpanRef.current = simpan;
+
+  // Ctrl/Cmd+S = simpan, Ctrl/Cmd+\ = pratinjau.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        simpanRef.current();
+      } else if (e.key === '\\') {
+        e.preventDefault();
+        setPratinjau((p) => !p);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const kata = body.trim().split(/\s+/).filter(Boolean).length;
+  const menitBaca = Math.max(1, Math.round(kata / 200));
+  const bahasaLain = bahasa === 'id' ? 'en' : 'id';
+
   const label = { blog: 'Blog', proyek: 'Proyek', berita: 'Berita', legal: 'Dokumen Legal' }[col];
 
   if (loading) return <div className="body"><Skeleton pola="editor" /></div>;
@@ -436,10 +568,22 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
           <div className="sub">
             <span className="pill br">{bahasa.toUpperCase()}</span>{' '}
             {slugFinal ? `/${bahasa}/${col}/${slugFinal}/` : 'Slug dibuat dari judul'}
+            {terj && !terj[bahasaLain] && (
+              <button className="pill wr" style={{ marginLeft: 8, cursor: 'pointer' }}
+                title={`Belum ada versi ${bahasaLain.toUpperCase()}`}
+                onClick={() => go({ name: 'edit', col, slug: slugFinal, bahasa: bahasaLain })}>
+                <I.alert /> Belum ada {bahasaLain.toUpperCase()} — buat
+              </button>
+            )}
+            {terj?.lengkap && <span className="pill ok" style={{ marginLeft: 8 }}>Dua bahasa lengkap</span>}
           </div>
         </div>
         <div className="spacer" />
-        <button className="btn btn-p" onClick={simpan} disabled={saving}>
+        <button className={`btn btn-g ${pratinjau ? 'on' : ''}`} onClick={() => setPratinjau((p) => !p)}
+          title={'Pratinjau (Ctrl+\\)'}>
+          <I.eye /> Pratinjau
+        </button>
+        <button className="btn btn-p" onClick={simpan} disabled={saving} title="Simpan (Ctrl+S)">
           {saving ? <span className="spin" /> : <I.save />} {saving ? 'Menyimpan…' : 'Simpan'}
         </button>
       </header>
@@ -455,13 +599,27 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
               <label>Deskripsi singkat *</label>
               <textarea rows={2} value={fm.desc} onChange={(e) => set('desc', e.target.value)}
                 placeholder="Satu–dua kalimat ringkasan, dipakai untuk kartu dan SEO." />
+              <div className="seo">
+                <span className={panjangKelas(fm.title?.length, 30, 65)}>Judul {fm.title?.length || 0}/60</span>
+                <span className={panjangKelas(fm.desc?.length, 70, 165)}>Deskripsi {fm.desc?.length || 0}/160</span>
+                <span className="hint" style={{ margin: 0 }}>{kata} kata · ±{menitBaca} menit baca</span>
+              </div>
             </div>
             <div className="field">
               <label>Isi konten (Markdown)</label>
-              <textarea className="mono" rows={22} value={body} onChange={(e) => setBody(e.target.value)}
+              {pratinjau ? (
+                <div className="pratinjau" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />
+              ) : (
+              <textarea ref={areaIsi} className="mono" rows={22} value={body} onChange={(e) => setBody(e.target.value)}
                 placeholder={'## Subjudul\n\nTulis isi di sini. Mendukung **tebal**, *miring*, daftar, tabel, dan kode.'} />
-              <span className="hint">{body.trim().split(/\s+/).filter(Boolean).length} kata</span>
+              )}
+              <span className="hint">{kata} kata · Ctrl+S simpan · Ctrl+\ pratinjau</span>
             </div>
+          </div>
+
+          <div className="card">
+            <h3 className="sec">Gambar</h3>
+            <UnggahGambar onSisip={sisip} say={say} />
           </div>
 
           <div>

@@ -5,3 +5,6 @@ dist/
 *.log
 .vercel
 .env*
+
+# Salinan gambar untuk pratinjau lokal (aslinya di repo xyverse-web)
+public/media/

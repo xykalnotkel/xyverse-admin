@@ -5,11 +5,26 @@ import { Alert, Btn, Modal, Skeleton } from './UI.jsx';
 
 const PILIHAN_UMUR = [
   { nilai: '', label: 'Tidak pernah kedaluwarsa' },
+  { nilai: 1, label: '24 jam' },
   { nilai: 7, label: '7 hari' },
   { nilai: 30, label: '30 hari' },
   { nilai: 90, label: '90 hari' },
   { nilai: 365, label: '1 tahun' },
+  { nilai: 'kustom', label: 'Tanggal pilihan sendiri…' },
 ];
+
+/** <input type="date"> -> stempel waktu ms pada pukul 23:59 waktu setempat. */
+const keStempel = (v) => (v ? new Date(`${v}T23:59:59`).getTime() : null);
+
+/** Sisa waktu dalam bahasa manusia: "6 hari lagi", "kedaluwarsa 2 jam lalu". */
+function sisaWaktu(iso) {
+  if (!iso) return '';
+  const d = iso - Date.now();
+  const m = Math.round(Math.abs(d) / 60000);
+  const satuan = (x) =>
+    x < 60 ? `${x} menit` : x < 1440 ? `${Math.round(x / 60)} jam` : `${Math.round(x / 1440)} hari`;
+  return d >= 0 ? `${satuan(m)} lagi` : `lewat ${satuan(m)}`;
+}
 
 const fmt = (iso) => {
   if (!iso) return '—';
@@ -33,6 +48,9 @@ export default function KunciApi({ say }) {
   const [umur, setUmur] = useState('');
   const [membuat, setMembuat] = useState(false);
   const [hapus, setHapus] = useState(null);
+  const [ubah, setUbah] = useState(null);   // { id, label, kedaluwarsa }
+  const [modeUmur, setModeUmur] = useState('tetap');
+  const [tglKustom, setTglKustom] = useState('');
   const [tersalin, setTersalin] = useState(false);
 
   const muat = useCallback(() => {
@@ -47,10 +65,16 @@ export default function KunciApi({ say }) {
     if (!label.trim()) return say('Label wajib diisi', true);
     setMembuat(true);
     try {
-      const r = await api.kunci.buat({ label: label.trim(), kedaluwarsaHari: umur || null });
+      const payload =
+        umur === 'kustom'
+          ? { label: label.trim(), kedaluwarsaPada: keStempel(tglKustom) }
+          : { label: label.trim(), kedaluwarsaHari: umur || null };
+      if (umur === 'kustom' && !keStempel(tglKustom)) return say('Pilih tanggalnya dulu', true);
+      const r = await api.kunci.buat(payload);
       setBaru(r);
       setLabel('');
       setUmur('');
+      setTglKustom('');
       muat();
       say('Kunci dibuat — salin sekarang');
     } catch (e) {
@@ -108,6 +132,14 @@ export default function KunciApi({ say }) {
                   <option key={String(p.nilai)} value={p.nilai}>{p.label}</option>
                 ))}
               </select>
+              {umur === 'kustom' && (
+                <input type="date" style={{ marginTop: 8 }} value={tglKustom}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setTglKustom(e.target.value)} />
+              )}
+              <span className="hint">
+                {umur === '' ? 'Kunci berlaku selamanya sampai dicabut.' : 'Terhitung sejak dibuat.'}
+              </span>
             </div>
           </div>
           <button className="btn btn-p" onClick={buat} disabled={membuat}>
@@ -146,7 +178,16 @@ export default function KunciApi({ say }) {
                       </td>
                       <td><code style={{ fontSize: 12.5 }}>{k.awalan}…</code></td>
                       <td style={{ color: 'var(--txt-2)', whiteSpace: 'nowrap' }}>{fmt(k.dibuat)}</td>
-                      <td style={{ color: 'var(--txt-2)', whiteSpace: 'nowrap' }}>{fmt(k.kedaluwarsa)}</td>
+                      <td style={{ color: 'var(--txt-2)', whiteSpace: 'nowrap' }}>
+                        {k.kedaluwarsa ? (
+                          <>
+                            {fmt(k.kedaluwarsa)}
+                            <span className="slug" style={{ marginLeft: 6 }}>{sisaWaktu(k.kedaluwarsa)}</span>
+                          </>
+                        ) : (
+                          <span className="pill">Selamanya</span>
+                        )}
+                      </td>
                       <td>
                         {k.env
                           ? <span className="pill">env</span>
@@ -156,9 +197,21 @@ export default function KunciApi({ say }) {
                       </td>
                       <td>
                         {!k.env && (
-                          <button className="btn btn-d icon" title="Cabut" onClick={() => setHapus(k)}>
-                            <I.trash />
-                          </button>
+                          <div className="acts">
+                            <button className="btn btn-g icon" title="Ubah label & masa berlaku"
+                              onClick={() => {
+                                setUbah({
+                                  id: k.id,
+                                  label: k.label,
+                                  kedaluwarsa: k.kedaluwarsa,
+                                });
+                                setModeUmur(k.kedaluwarsa ? 'tetap' : 'selamanya');
+                                setTglKustom(k.kedaluwarsa ? new Date(k.kedaluwarsa).toISOString().slice(0, 10) : '');
+                              }}><I.edit /></button>
+                            <button className="btn btn-d icon" title="Cabut" onClick={() => setHapus(k)}>
+                              <I.trash />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -218,6 +271,55 @@ export default function KunciApi({ say }) {
               Kedaluwarsa: {fmt(baru.kedaluwarsa)}
             </p>
           )}
+        </Modal>
+      )}
+
+      {ubah && (
+        <Modal
+          judul="Ubah kunci"
+          onTutup={() => setUbah(null)}
+          aksi={
+            <>
+              <Btn onClick={() => setUbah(null)}>Batal</Btn>
+              <Btn jenis="p" onClick={async () => {
+                const payload = { label: ubah.label.trim() };
+                if (modeUmur === 'selamanya') payload.hapusBatas = true;
+                else if (modeUmur === 'tanggal') {
+                  const st = keStempel(tglKustom);
+                  if (!st) return say('Pilih tanggalnya dulu', true);
+                  payload.kedaluwarsaPada = st;
+                }
+                try {
+                  await api.kunci.ubah(ubah.id, payload);
+                  say('Kunci diperbarui');
+                  muat();
+                } catch (e) { say(e.message, true); }
+                setUbah(null);
+              }}><I.save /> Simpan</Btn>
+            </>
+          }
+        >
+          <div className="field">
+            <label>Label</label>
+            <input value={ubah.label} onChange={(e) => setUbah((p) => ({ ...p, label: e.target.value }))} />
+          </div>
+          <div className="field">
+            <label>Masa berlaku</label>
+            <div className="segs" style={{ marginBottom: 10 }}>
+              {[['tetap', 'Tidak diubah'], ['selamanya', 'Selamanya'], ['tanggal', 'Tanggal tertentu']].map(([v, l]) => (
+                <button key={v} className={`seg ${modeUmur === v ? 'on' : ''}`}
+                  onClick={() => setModeUmur(v)}>{l}</button>
+              ))}
+            </div>
+            {modeUmur === 'tanggal' && (
+              <input type="date" value={tglKustom}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setTglKustom(e.target.value)} />
+            )}
+            <span className="hint">
+              Kuncinya sendiri tidak berubah — agen yang memakainya tidak perlu diatur ulang.
+            </span>
+          </div>
         </Modal>
       )}
 

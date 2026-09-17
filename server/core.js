@@ -12,6 +12,8 @@ import matter from 'gray-matter';
 import { Router, bacaBody, json, Galat } from './http.js';
 import { pasangAuth, wajibMasuk } from './auth.js';
 import * as kunci from './kunci.js';
+import * as media from './media.js';
+import { cerminMediaLokal, hapusCerminLokal } from './cermin.js';
 import { pasangAI } from './ai.js';
 import * as gh from './github.js';
 
@@ -160,7 +162,10 @@ function buatRouter() {
 
   // tubuh JSON untuk POST/PUT/DELETE
   r.pakai(async (req, res, next) => {
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+    // Semua kata kerja yang bisa membawa tubuh JSON. PATCH sengaja ikut:
+    // tanpa baris ini, PATCH /api/kunci/:id menerima req.body kosong dan
+    // selalu dibalas "Tidak ada yang diubah."
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       req.body = await bacaBody(req);
     }
     next();
@@ -217,8 +222,46 @@ function buatRouter() {
     });
   });
 
+  // Ubah label dan/atau masa berlaku tanpa membuat kunci baru.
+  // Kirim hapusBatas: true untuk membuatnya berlaku selamanya.
+  r.jalan('PATCH', '/api/kunci/:id', wajibSesi, async (req, res) => {
+    const { label, kedaluwarsaHari, kedaluwarsaPada, hapusBatas } = req.body || {};
+    json(res, 200, await kunci.ubah(req.params.id, {
+      label, kedaluwarsaHari, kedaluwarsaPada, hapusBatas,
+    }));
+  });
+
   r.jalan('DELETE', '/api/kunci/:id', wajibSesi, async (req, res) => {
     json(res, 200, await kunci.cabut(req.params.id));
+  });
+
+  /* ---- gambar ----
+   *
+   * Rute literal, jadi tidak bentrok dengan wildcard /api/:col.
+   * Boleh diakses sesi maupun kunci API: agen juga perlu menyisipkan gambar.
+   */
+
+  r.jalan('GET', '/api/media', async (_req, res) => {
+    json(res, 200, await media.daftar());
+  });
+
+  r.jalan('POST', '/api/media', async (req, res) => {
+    const { nama = '', dataBase64 = '', ekstensi = null } = req.body || {};
+    const hasil = await media.simpan({ nama, dataBase64, ekstensiPaksa: ekstensi });
+    // Di dev lokal, simpan salinan supaya pratinjau editor langsung hidup.
+    // Fungsi ini tidak ada di Vercel Function — di sana gambar dilayani dari
+    // hasil build repo situs.
+    cerminMediaLokal(
+      hasil.nama,
+      Buffer.from(String(dataBase64).replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, ''), 'base64'),
+    );
+    json(res, 201, hasil);
+  });
+
+  r.jalan('DELETE', '/api/media/:nama', async (req, res) => {
+    const hasil = await media.hapus(req.params.nama);
+    hapusCerminLokal(hasil.nama);
+    json(res, 200, hasil);
   });
 
   /* ---- meta & statistik ---- */
@@ -230,6 +273,12 @@ function buatRouter() {
       url: `https://github.com/${gh.reposSitus()}`,
       cabang: gh.CFG.cabang(),
       bahasa: BAHASA,
+      media: {
+        folder: media.INFO.folder(),
+        repo: media.INFO.repo(),
+        maksMB: media.INFO.maksMB,
+        jenis: media.INFO.jenis,
+      },
       kunciApi: {
         header: 'Authorization: Bearer xya_...',
         awalan: kunci.INFO.awalan,
@@ -353,6 +402,25 @@ function buatRouter() {
   r.jalan('GET', '/api/:col', async (req, res) => {
     const bahasa = bahasaDari(req.query?.bahasa);
     json(res, 200, await daftarKoleksi(req.params.col, bahasa));
+  });
+
+  /*
+   * RUTE INI HARUS TERDAFTAR SEBELUM '/api/:col/:slug'.
+   * Kalau tidak, 'terjemahan' akan tertangkap sebagai :slug.
+   */
+  r.jalan('GET', '/api/:col/terjemahan/:slug', async (req, res) => {
+    const { col, slug } = req.params;
+    const repo = gh.reposSitus();
+    const ada = async (bahasa) => {
+      try {
+        await gh.bacaIsiBercabang(repo, pathKonten(col, slug, bahasa), gh.CFG.cabang());
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const [id, en] = await Promise.all([ada('id'), ada('en')]);
+    json(res, 200, { slug, id, en, lengkap: id && en });
   });
 
   r.jalan('GET', '/api/:col/:slug', async (req, res) => {

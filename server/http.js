@@ -8,7 +8,10 @@
  */
 
 /** Baca tubuh permintaan sebagai JSON (maks. 2 MB). */
-export function bacaBody(req, maks = 2 * 1024 * 1024) {
+// 8 MB: cukup untuk gambar base64 (+33%) setelah dikompresi di peramban.
+// Di Vercel batas tubuh permintaan Function adalah 4,5 MB, jadi berkas yang
+// lewat dari situ sudah ditolak lebih dulu oleh platform.
+export function bacaBody(req, maks = 8 * 1024 * 1024) {
   return new Promise((selesai, gagal) => {
     const bagian = [];
     let total = 0;

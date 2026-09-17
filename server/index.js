@@ -9,7 +9,11 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Nyalakan cermin media lokal SEBELUM modul lain dibaca env-nya.
+process.env.XY_CERMIN_MEDIA = '1';
 import { tanganiApi } from './core.js';
+import { layaniCermin, cerminAktif } from './cermin.js';
 import { json } from './http.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +32,10 @@ try {
 const PORT = process.env.PORT || 4500;
 const server = http.createServer((req, res) => {
   if (req.url?.startsWith('/api')) return tanganiApi(req, res);
+  if (layaniCermin(req, res)) return;
+
   json(res, 404, {
-    error: 'Server dev ini hanya melayani /api/* — buka http://localhost:4400 untuk panel.',
+    error: 'Server dev ini hanya melayani /api/* dan /media/* — buka http://localhost:4400 untuk panel.',
   });
 });
 

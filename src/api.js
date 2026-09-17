@@ -31,6 +31,10 @@ export const api = {
   remove: (col, slug, bahasa = 'id') =>
     fetch(`/api/${col}/${slug}?bahasa=${bahasa}`, { method: 'DELETE' }).then(j),
 
+  // Apakah slug ini punya padanan di bahasa lain? Dipakai penanda
+  // "belum diterjemahkan" di daftar dan editor.
+  terjemahan: (col, slug) => fetch(`/api/${col}/terjemahan/${slug}`).then(j),
+
   // Kunci API. Hanya bisa dipakai dari sesi peramban — server menolak
   // kunci API yang mencoba mengelola kunci (kode BUTUH_SESI).
   kunci: {
@@ -41,8 +45,44 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       }).then(j),
+    ubah: (id, payload) =>
+      fetch(`/api/kunci/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(j),
     cabut: (id) => fetch(`/api/kunci/${id}`, { method: 'DELETE' }).then(j),
   },
+};
+
+// Basis URL situs publik. Di dev, gambar yang baru di-commit ke repo situs
+// langsung dilayani Astro di :4321; di produksi pakai domain Vercel.
+export const SITUS_URL = import.meta.env.DEV
+  ? 'http://localhost:4321'
+  : import.meta.env.VITE_SITE_URL || 'https://xyverse.my.id';
+
+export const urlSitus = (u) => (/^https?:\/\//.test(u) ? u : `${SITUS_URL}${u}`);
+
+/**
+ * URL untuk MENAMPILKAN gambar di panel.
+ *
+ * Di dev: jalur relatif, sehingga lewat proxy Vite ke server API yang punya
+ * salinan lokalnya. Ke :4321 tidak bisa — Astro hanya menyajikan berkas yang
+ * ada di working tree, sedangkan gambar baru hanya ada di GitHub.
+ * Di produksi: domain situs, karena Vercel mem-build dari repo itu.
+ */
+export const urlGambar = (u) =>
+  /^https?:\/\//.test(u) ? u : import.meta.env.DEV ? u : `${SITUS_URL}${u}`;
+
+export const media = {
+  list: () => fetch('/api/media').then(j),
+  kirim: (payload) =>
+    fetch('/api/media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(j),
+  hapus: (nama) => fetch(`/api/media/${encodeURIComponent(nama)}`, { method: 'DELETE' }).then(j),
 };
 
 export const BAHASA = [
