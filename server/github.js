@@ -88,8 +88,13 @@ export function segmen(path) {
 
 /** Baca isi berkas mentah (teks) dari repositori. */
 export async function bacaIsi(repo, pathFile) {
+  return bacaIsiBercabang(repo, pathFile, CFG.cabang());
+}
+
+/** Sama seperti bacaIsi, tetapi cabangnya ditentukan pemanggil. */
+export async function bacaIsiBercabang(repo, pathFile, cabang) {
   const p = segmen(pathFile);
-  const r = await fetch(`${API}/repos/${repo}/contents/${p}?ref=${CFG.cabang()}`, {
+  const r = await fetch(`${API}/repos/${repo}/contents/${p}?ref=${encodeURIComponent(cabang)}`, {
     headers: kepala({ accept: 'application/vnd.github.raw+json' }),
   });
   if (r.status === 404) throw new Galat('Berkas tidak ditemukan di repositori.', 404);
@@ -104,25 +109,30 @@ export async function daftarDirektori(repo, pathDir) {
   return Array.isArray(data) ? data : [];
 }
 
-async function ambilSHA(repo, pathFile) {
+async function ambilSHA(repo, pathFile, cabang = CFG.cabang()) {
   const p = segmen(pathFile);
-  const data = await panggil(`/repos/${repo}/contents/${p}?ref=${CFG.cabang()}`);
+  const data = await panggil(`/repos/${repo}/contents/${p}?ref=${encodeURIComponent(cabang)}`);
   return data?.sha || null;
 }
 
 /** Tulis (buat/perbarui) berkas — menghasilkan satu commit di GitHub. */
 export async function tulisBerkas(repo, pathFile, isi, pesan) {
+  return tulisBerkasBercabang(repo, pathFile, isi, pesan, CFG.cabang());
+}
+
+/** Sama seperti tulisBerkas, tetapi cabangnya ditentukan pemanggil. */
+export async function tulisBerkasBercabang(repo, pathFile, isi, pesan, cabang) {
   if (!CFG.token())
     throw new Galat(
       'GH_TOKEN belum diatur di lingkungan deployment. Tanpa token, konten tidak bisa disimpan.',
       400,
     );
   const p = segmen(pathFile);
-  const ada = await ambilSHA(repo, pathFile).catch(() => null);
+  const ada = await ambilSHA(repo, pathFile, cabang).catch(() => null);
   const muatan = {
     message: pesan,
     content: Buffer.from(isi, 'utf8').toString('base64'),
-    branch: CFG.cabang(),
+    branch: cabang,
   };
   if (ada) muatan.sha = ada;
   const data = await panggil(`/repos/${repo}/contents/${p}`, {

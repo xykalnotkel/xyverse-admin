@@ -5,6 +5,7 @@ import { PanelAI, StudioAI } from './AI.jsx';
 import Login from './Login.jsx';
 import Deploy from './Deploy.jsx';
 import { ToastHost, usePesan, Skeleton, Memuat, Alert, Btn, Modal } from './UI.jsx';
+import KunciApi from './KunciApi.jsx';
 
 // Lokal: Astro dev server. Produksi: domain situs (bisa ditimpa VITE_SITE_URL).
 const SITE = import.meta.env.DEV
@@ -105,6 +106,10 @@ function Dashboard({ pengguna, onKeluar }) {
           <I.git /> Deploy
         </button>
 
+        <button className={`nav ${view.name === 'kunci' ? 'on' : ''}`} onClick={() => setView({ name: 'kunci' })}>
+          <I.lock /> Kunci API
+        </button>
+
         <div className="navlbl">Konten</div>
         {cols.map(({ key, label, Ic }) => (
           <button
@@ -134,6 +139,7 @@ function Dashboard({ pengguna, onKeluar }) {
       <main className="main">
         {view.name === 'dash' && <Dash stats={stats} go={setView} />}
         {view.name === 'deploy' && <Deploy />}
+        {view.name === 'kunci' && <KunciApi say={say} />}
         {view.name === 'ai' && <StudioAI go={setView} say={say} />}
         {view.name === 'list' && <List col={view.col} go={setView} say={say} onChange={refresh} />}
         {view.name === 'edit' && (

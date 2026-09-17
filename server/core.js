@@ -11,6 +11,7 @@
 import matter from 'gray-matter';
 import { Router, bacaBody, json, Galat } from './http.js';
 import { pasangAuth, wajibMasuk } from './auth.js';
+import * as kunci from './kunci.js';
 import { pasangAI } from './ai.js';
 import * as gh from './github.js';
 
@@ -176,6 +177,50 @@ function buatRouter() {
 
   pasangAI(r);
 
+  /* ---- kunci API ----
+   *
+   * Rute ini berada di luar jangkauan kunci API dengan SENGAJA: yang boleh
+   * membuat dan mencabut kunci hanyalah sesi peramban. Kalau kunci API bisa
+   * menerbitkan kunci baru, satu kunci yang bocor bisa menanam kunci lain
+   * yang tidak pernah muncul di daftar.
+   */
+
+  const wajibSesi = (req, res, next) => {
+    if (req.admin?.jenis === 'sesi') return next();
+    return json(res, 403, {
+      error: 'Mengelola kunci API hanya bisa dari panel yang sedang masuk, bukan lewat kunci API.',
+      kode: 'BUTUH_SESI',
+    });
+  };
+
+  r.jalan('GET', '/api/kunci', wajibSesi, async (_req, res) => {
+    json(res, 200, {
+      kunci: await kunci.daftarPublik(),
+      repo: kunci.INFO.repo(),
+      jalur: kunci.INFO.jalur(),
+      bootstrap: kunci.INFO.bootstrapAktif(),
+      batasPerMenit: kunci.INFO.batasPerMenit,
+    });
+  });
+
+  r.jalan('POST', '/api/kunci', wajibSesi, async (req, res) => {
+    // kedaluwarsaHari : umur dalam hari (untuk manusia)
+    // kedaluwarsaPada : stempel waktu ms mutlak, menang bila keduanya diisi
+    const { label = '', kedaluwarsaHari = null, kedaluwarsaPada = null } = req.body || {};
+    const baru = await kunci.buat({ label, kedaluwarsaHari, kedaluwarsaPada });
+    // Teks polos hanya ada di respons ini dan tidak pernah disimpan ulang.
+    json(res, 201, {
+      ...baru,
+      peringatan:
+        'Salin sekarang. Kunci ini tidak bisa dilihat lagi setelah respons ini — ' +
+        'yang tersimpan hanya hash-nya.',
+    });
+  });
+
+  r.jalan('DELETE', '/api/kunci/:id', wajibSesi, async (req, res) => {
+    json(res, 200, await kunci.cabut(req.params.id));
+  });
+
   /* ---- meta & statistik ---- */
 
   r.jalan('GET', '/api/meta', (_req, res) => {
@@ -185,6 +230,14 @@ function buatRouter() {
       url: `https://github.com/${gh.reposSitus()}`,
       cabang: gh.CFG.cabang(),
       bahasa: BAHASA,
+      kunciApi: {
+        header: 'Authorization: Bearer xya_...',
+        awalan: kunci.INFO.awalan,
+        repo: kunci.INFO.repo(),
+        jalur: kunci.INFO.jalur(),
+        bootstrap: kunci.INFO.bootstrapAktif(),
+        batasPerMenit: kunci.INFO.batasPerMenit,
+      },
       collections: Object.entries(COLLECTIONS).map(([key, v]) => ({
         key,
         label: v.label,

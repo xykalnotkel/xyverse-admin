@@ -30,6 +30,19 @@ export const api = {
     }).then(j),
   remove: (col, slug, bahasa = 'id') =>
     fetch(`/api/${col}/${slug}?bahasa=${bahasa}`, { method: 'DELETE' }).then(j),
+
+  // Kunci API. Hanya bisa dipakai dari sesi peramban — server menolak
+  // kunci API yang mencoba mengelola kunci (kode BUTUH_SESI).
+  kunci: {
+    list: () => fetch('/api/kunci').then(j),
+    buat: (payload) =>
+      fetch('/api/kunci', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(j),
+    cabut: (id) => fetch(`/api/kunci/${id}`, { method: 'DELETE' }).then(j),
+  },
 };
 
 export const BAHASA = [

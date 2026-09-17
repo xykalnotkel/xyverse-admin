@@ -14,6 +14,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { json } from './http.js';
+import { verifikasiKunci, dibatasi, catatPakai } from './kunci.js';
 
 const NAMA_COOKIE = 'xy_adm';
 const UMUR_SESI = 1000 * 60 * 60 * 12; // 12 jam
@@ -85,7 +86,7 @@ const percobaan = new Map(); // ip -> { n, sampai }
 const MAKS = 6;
 const JEDA = 1000 * 60 * 10; // 10 menit
 
-function ipDari(req) {
+export function ipDari(req) {
   return (req.headers['cf-connecting-ip'] ||
     String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
     req.socket.remoteAddress ||
@@ -139,11 +140,43 @@ async function verifikasiTurnstile(token, ip) {
 }
 
 /* ---------- middleware ---------- */
-export function wajibMasuk(req, res, next) {
+
+/**
+ * Gerbang semua rute /api/* yang bukan endpoint autentikasi terbuka.
+ *
+ * Dua jalan masuk, setara haknya:
+ *   1. Cookie sesi hasil login peramban (bcrypt + Turnstile).
+ *   2. Kunci API di header `Authorization: Bearer xya_...` atau `X-Api-Key`.
+ *
+ * Yang membedakan keduanya cuma satu hal: mengelola kunci API (buat/cabut)
+ * hanya boleh lewat cookie. Lihat `wajibSesi` di core.js.
+ */
+export async function wajibMasuk(req, res, next) {
   const sesi = periksa(baca(req)[NAMA_COOKIE]);
-  if (!sesi) return json(res, 401, { error: 'Belum masuk', kode: 'AUTH' });
-  req.admin = sesi;
-  next();
+  if (sesi) {
+    req.admin = { jenis: 'sesi', pengguna: sesi.u, id: `sesi:${sesi.u}` };
+    return next();
+  }
+
+  const api = await verifikasiKunci(req);
+  if (api) {
+    const tunggu = dibatasi(api);
+    if (tunggu) {
+      return json(res, 429, {
+        error: `Batas laju kunci API tercapai. Coba lagi dalam ${tunggu} detik.`,
+        kode: 'RATE',
+      });
+    }
+    catatPakai(api);
+    req.admin = api;
+    return next();
+  }
+
+  json(res, 401, {
+    error: 'Belum masuk',
+    kode: 'AUTH',
+    petunjuk: 'Masuk lewat panel, atau kirim header Authorization: Bearer xya_...',
+  });
 }
 
 /* ---------- rute ---------- */

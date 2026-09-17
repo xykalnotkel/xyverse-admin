@@ -26,6 +26,7 @@ process.env.GH_BRANCH = 'main';
 process.env.ADMIN_USER = 'admin';
 process.env.ADMIN_PASS_HASH = bcrypt.hashSync('sandi-uji-api', 10);
 process.env.SESSION_SECRET = 'x'.repeat(48);
+process.env.ADMIN_API_KEY = 'xya_bootstraptopeng0000000000000000000000';
 
 const { tanganiApi } = await import('../server/core.js');
 
@@ -40,6 +41,8 @@ const isiLama = {
     title: 'Parsec vs RDP', desc: 'ID desc', date: '2026-09-03', kategori: 'Teknis', baca: 5,
   }),
 };
+const JALUR_KUNCI = '.xyverse/api-keys.json';
+
 const ditulis = [];   // { path, pesan, isi }
 const dihapus = [];   // path
 
@@ -91,14 +94,16 @@ globalThis.fetch = async (url, opsi = {}) => {
  */
 import { Readable } from 'node:stream';
 
-function kirim(method, url, { body, cookie } = {}) {
+function kirim(method, url, { body, cookie, ...headers } = {}) {
   return new Promise((selesai) => {
     const req = Readable.from(body ? [Buffer.from(JSON.stringify(body), "utf8")] : []);
     req.method = method;
     req.url = url;
+    // `headers` menampung authorization / x-api-key dari pemanggil.
     req.headers = {
       'content-type': 'application/json',
       ...(cookie ? { cookie } : {}),
+      ...headers,
     };
     req.socket = { remoteAddress: '127.0.0.1' };
     req.connection = req.socket;
@@ -215,6 +220,110 @@ console.log('\n[7] meta menyebut legal + bahasa');
 const meta = (await kirim('GET', '/api/meta', H)).data;
 cek('meta.bahasa = [id, en]', JSON.stringify(meta.bahasa) === '["id","en"]', JSON.stringify(meta.bahasa));
 cek('meta.collections memuat legal', meta.collections.some((c) => c.key === 'legal'));
+
+/* ============================================================
+ * Kunci API
+ * ============================================================ */
+console.log('\n[8] Kunci bootstrap dari lingkungan');
+const BOOT = 'xya_bootstraptopeng0000000000000000000000';
+const hdr = (k) => ({ authorization: `Bearer ${k}` });
+
+const bootBaca = await kirim('GET', '/api/blog', hdr(BOOT));
+cek('kunci env bisa membaca konten', bootBaca.status === 200, `status ${bootBaca.status}`);
+
+const bootKelola = await kirim('GET', '/api/kunci', hdr(BOOT));
+cek('kunci env DITOLAK saat mengelola kunci', bootKelola.status === 403,
+  `status ${bootKelola.status} ${JSON.stringify(bootKelola.data)}`);
+cek('alasannya BUTUH_SESI', bootKelola.data?.kode === 'BUTUH_SESI', JSON.stringify(bootKelola.data));
+
+const tanpaApa = await kirim('GET', '/api/blog');
+cek('tanpa cookie & tanpa kunci → 401', tanpaApa.status === 401, `status ${tanpaApa.status}`);
+cek('401 menyertakan petunjuk header', /Bearer xya_/.test(tanpaApa.data?.petunjuk || ''),
+  JSON.stringify(tanpaApa.data));
+
+const kunciNgawur = await kirim('GET', '/api/blog', hdr('xya_' + 'f'.repeat(40)));
+cek('kunci tak dikenal → 401', kunciNgawur.status === 401, `status ${kunciNgawur.status}`);
+
+console.log('\n[9] Membuat kunci dari sesi peramban');
+const buat = await kirim('POST', '/api/kunci', { ...H, body: { label: 'agen-uji' } });
+cek('buat kunci → 201', buat.status === 201, `status ${buat.status} ${JSON.stringify(buat.data)}`);
+const kunciBaru = buat.data?.kunci;
+cek('kunci berawalan xya_', /^xya_[0-9a-f]{40}$/.test(kunciBaru || ''), kunciBaru);
+cek('respons memuat peringatan sekali-lihat', /tidak bisa dilihat lagi/.test(buat.data?.peringatan || ''));
+cek('hash yang disimpan bukan teks polos',
+  !JSON.stringify(isiLama[JALUR_KUNCI] || '').includes(String(kunciBaru).slice(5)),
+  String(isiLama[JALUR_KUNCI] || '').slice(0, 160));
+cek('hash disimpan sebagai SHA-256 (32 hex)',
+  /"hash":\s*"[0-9a-f]{32}"/.test(String(isiLama[JALUR_KUNCI] || '')),
+  String(isiLama[JALUR_KUNCI] || '').slice(0, 200));
+
+console.log('\n[10] Kunci tersimpan dipakai agen');
+const pakaiKunci = await kirim('GET', '/api/blog', hdr(kunciBaru));
+cek('kunci tersimpan bisa membaca', pakaiKunci.status === 200, `status ${pakaiKunci.status}`);
+
+const pakaiHeaderLain = await kirim('GET', '/api/blog?bahasa=en', { 'x-api-key': kunciBaru });
+cek('header X-Api-Key juga diterima', pakaiHeaderLain.status === 200, `status ${pakaiHeaderLain.status}`);
+
+const pakaiTulis = await kirim('PUT', '/api/blog/parsec-vs-rdp?bahasa=en', {
+  'x-api-key': kunciBaru,
+  body: { frontmatter: { title: 'Parsec vs RDP (EN)', desc: 'EN', date: '2026-09-03', kategori: 'Technical', baca: 5 }, body: 'Isi EN via agen' },
+});
+cek('kunci bisa menulis konten', pakaiTulis.status === 200, `status ${pakaiTulis.status}`);
+cek('tulisan agen tetap menjaga lang: "en"',
+  matter(ditulis.at(-1)?.isi || '').data.lang === 'en', `lang=${matter(ditulis.at(-1)?.isi || '').data.lang}`);
+
+const agenBuatKunci = await kirim('POST', '/api/kunci', {
+  'x-api-key': kunciBaru, body: { label: 'kunci-cangkokan' },
+});
+cek('kunci API tidak bisa membuat kunci', agenBuatKunci.status === 403, `status ${agenBuatKunci.status}`);
+cek('kunci API tidak bisa melihat daftar kunci',
+  (await kirim('GET', '/api/kunci', hdr(kunciBaru))).status === 403);
+
+console.log('\n[11] Daftar, kedaluwarsa, dan pencabutan');
+const logAsli3 = console.error;
+console.error = () => {}; // 400/404 di blok ini memang diharapkan
+const daftar = await kirim('GET', '/api/kunci', H);
+cek('daftar kunci terbaca oleh sesi', daftar.status === 200, `status ${daftar.status}`);
+cek('daftar menyebut kunci baru', daftar.data?.kunci?.some((k) => k.label === 'agen-uji'),
+  JSON.stringify(daftar.data?.kunci));
+cek('daftar menyebut kunci bootstrap env', daftar.data?.kunci?.some((k) => k.env === true));
+cek('hash tidak pernah ikut dikirim ke UI',
+  !JSON.stringify(daftar.data).includes(JSON.parse(String(isiLama[JALUR_KUNCI] || '{}'))?.[0]?.hash || '\u0000tidak-ada'),
+  JSON.stringify(daftar.data).slice(0, 200));
+
+const sudahLewat = await kirim('POST', '/api/kunci', {
+  ...H, body: { label: 'sudah-mati', kedaluwarsaPada: Date.now() - 1000 },
+});
+cek('kunci dengan masa berlaku lampau tetap dibuat', sudahLewat.status === 201, `status ${sudahLewat.status}`);
+cek('kuncinya ditandai mati di daftar',
+  (await kirim('GET', '/api/kunci', H)).data?.kunci?.find((k) => k.id === sudahLewat.data?.id)?.mati === true);
+const pakaiLewat = await kirim('GET', '/api/blog', hdr(sudahLewat.data?.kunci));
+cek('kunci kedaluwarsa ditolak 401', pakaiLewat.status === 401, `status ${pakaiLewat.status}`);
+
+const masihHidup = await kirim('POST', '/api/kunci', { ...H, body: { label: 'seminggu', kedaluwarsaHari: 7 } });
+cek('kunci 7 hari bisa dipakai',
+  (await kirim('GET', '/api/blog', hdr(masihHidup.data?.kunci))).status === 200);
+
+const tanpaLabel = await kirim('POST', '/api/kunci', { ...H, body: { label: '   ' } });
+cek('label kosong → 400', tanpaLabel.status === 400, `status ${tanpaLabel.status}`);
+
+const idKunci = buat.data?.id;
+const cabut = await kirim('DELETE', `/api/kunci/${idKunci}`, H);
+cek('cabut kunci → 200', cabut.status === 200, `status ${cabut.status} ${JSON.stringify(cabut.data)}`);
+const hashDicabut = JSON.parse(String(isiLama[JALUR_KUNCI] || '[]')).map((k) => k.hash);
+cek('hash kunci yang dicabut hilang dari penyimpanan',
+  !hashDicabut.includes(buat.data?.id) && JSON.parse(String(isiLama[JALUR_KUNCI] || '[]')).every((k) => k.id !== idKunci),
+  JSON.stringify(hashDicabut));
+const pakaiSetelahCabut = await kirim('GET', '/api/blog', hdr(kunciBaru));
+cek('kunci yang dicabut langsung mati', pakaiSetelahCabut.status === 401, `status ${pakaiSetelahCabut.status}`);
+cek('cabut kunci yang tidak ada → 404',
+  (await kirim('DELETE', '/api/kunci/tidakada', H)).status === 404);
+
+console.log('\n[12] meta menyebutkan konfigurasi kunci API');
+console.error = logAsli3;
+const metaKunci = (await kirim('GET', '/api/meta', hdr(BOOT))).data;
+cek('meta.kunciApi ada', Boolean(metaKunci?.kunciApi), JSON.stringify(metaKunci?.kunciApi));
+cek('meta menyebut awalan xya_', metaKunci?.kunciApi?.awalan === 'xya_');
 
 console.log(gagal ? `\n${gagal} pemeriksaan GAGAL\n` : '\nSemua pemeriksaan lolos\n');
 process.exit(gagal ? 1 : 0);

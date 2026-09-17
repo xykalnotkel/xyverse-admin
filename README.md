@@ -10,10 +10,11 @@ Function** — tidak butuh server VPS, tidak ada checkout lokal.
 ┌────────────────────────── Vercel (1 project) ──────────────────────────┐
 │  /            → SPA React (build Vite, dist/)                          │
 │  /push.html   → halaman status GitHub mandiri                          │
-│  /api/*       → Function Node (api/[...path].js)                       │
+│  /api/*       → Function Node (api/all.js)                       │
 │                ├─ /api/auth/*   login bcrypt + cookie HMAC + Turnstile │
 │                ├─ /api/blog|proyek|berita  CRUD konten                 │
 │                ├─ /api/ai/*     proksi Groq (ide/tulis/meta/perbaiki)  │
+│                ├─ /api/kunci    buat/cabut kunci API (khusus sesi)     │
 │                └─ /api/git/*    status & uji koneksi GitHub            │
 └─────────────────────────────────────────────────────────────────────────┘
                          │  GitHub Contents API (commit per simpan)
@@ -40,6 +41,7 @@ api/all.js           Function Vercel — gerbang /api/* (rewrite, lihat vercel.j
 server/core.js       Router inti + daftar koleksi (dipakai dev lokal & Vercel)
 server/http.js       Mini router + utilitas (tanpa framework)
 server/auth.js       Login, cookie sesi HMAC, Turnstile, rate limit
+server/kunci.js      Kunci API: hash SHA-256 di repo admin, batas laju
 server/ai.js         Studio AI (Groq) — draf-penuh memakai pemanggilan internal
 server/github.js     Klien GitHub API (Contents, commits, repo info)
 server/index.js      Dev server lokal (port 4500)
@@ -47,6 +49,69 @@ src/                 SPA React (dasbor, editor, studio AI, panel deploy)
 public/push.html     Halaman status GitHub mandiri
 scripts/hash.js      Pembuat hash bcrypt
 scripts/uji-api.mjs  Uji asap router inti (GitHub API dipalsukan) — `npm test`
+```
+
+## Kunci API — akses untuk agen AI
+
+Seluruh `/api/*` bisa diakses tanpa login peramban, cukup header:
+
+```bash
+curl -H "Authorization: Bearer xya_..." https://admin.xyverse.my.id/api/stats
+```
+
+`X-Api-Key: xya_...` juga diterima dan setara.
+
+**Bentuk kunci.** `xya_` + 40 karakter hex (160 bit entropi). Teks polosnya
+hanya muncul sekali, pada respons pembuatan — yang disimpan server hanyalah
+hash SHA-256-nya.
+
+**Penyimpanan.** Hash disimpan sebagai JSON di repo `xyverse-admin`, bawaan
+`.xyverse/api-keys.json` (ubah lewat `ADMIN_API_KEYS_PATH`). Repo dipakai
+sebagai "database" karena backend ini serverless: tidak ada disk yang
+bertahan antar-request, dan `GH_TOKEN` sudah tersedia. Berkasnya aman
+di-commit karena tidak memuat teks polos.
+
+**Membuat kunci.** Dari panel → **Kunci API** → isi label dan masa berlaku.
+Atau lewat API, dari sesi peramban:
+
+```bash
+curl -b cookie.txt -X POST https://admin.xyverse.my.id/api/kunci \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"Agen penerjemah","kedaluwarsaHari":30}'
+```
+
+| Rute | Hak |
+|---|---|
+| `GET /api/kunci` | daftar kunci (tanpa hash) |
+| `POST /api/kunci` | buat kunci — `{ label, kedaluwarsaHari }` atau `{ label, kedaluwarsaPada }` |
+| `DELETE /api/kunci/:id` | cabut kunci |
+
+**Kunci bootstrap.** `ADMIN_API_KEY` di lingkungan Vercel juga diterima
+sebagai kunci API, tanpa perlu dibuat lewat panel. Berguna untuk bootstrap
+atau untuk lingkungan yang tidak mau menulis ke repo. Kunci ini tidak bisa
+dicabut lewat API — matikan lewat dashboard Vercel.
+
+**Yang sengaja dibatasi.** Kunci API **tidak bisa** membuat atau mencabut
+kunci API (`403 BUTUH_SESI`). Kalau bisa, satu kunci yang bocor bisa menanam
+kunci lain yang tidak pernah muncul di daftar. Pengelolaan kunci hanya lewat
+sesi peramban.
+
+**Batas laju.** 600 permintaan/menit per kunci, per instans Function.
+Melebihi itu dibalas `429`.
+
+**Hak kunci API** sama dengan sesi: buat/ubah/hapus blog, proyek, berita, dan
+dokumen legal, di kedua bahasa. Contoh alur agen:
+
+```bash
+H='-H "Authorization: Bearer xya_..."'
+
+# ambil artikel Indonesia
+curl $H "https://admin.xyverse.my.id/api/blog/parsec-vs-rdp"
+
+# simpan terjemahannya sebagai artikel Inggris
+curl $H -X PUT "https://admin.xyverse.my.id/api/blog/parsec-vs-rdp?bahasa=en" \
+  -H 'Content-Type: application/json' \
+  -d '{"frontmatter":{"title":"Parsec vs RDP: Which Is Better?","desc":"...","date":"2026-09-17","kategori":"Technical","baca":5},"body":"..."}'
 ```
 
 ## Koleksi & bahasa
@@ -137,6 +202,8 @@ menunjuk ke sana saat mode dev.
    | `ADMIN_USER` | `admin` |
    | `ADMIN_PASS_HASH` | hasil `npm run hash -- "katasandi"` |
    | `SESSION_SECRET` | **wajib** — `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `ADMIN_API_KEY` | opsional — kunci API bootstrap, `xya_` + 40 hex |
+| `ADMIN_API_KEYS_PATH` | opsional — bawaan `.xyverse/api-keys.json` di repo admin |
    | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | sangat disarankan untuk proteksi login |
    | `VITE_SITE_URL` | `https://xyverse.my.id` |
    | `VITE_SITE_LANG` | `id` |
