@@ -7,6 +7,7 @@ import Deploy from './Deploy.jsx';
 import { ToastHost, usePesan, Skeleton, Memuat, Alert, Btn, Modal } from './UI.jsx';
 import KunciApi from './KunciApi.jsx';
 import { UnggahGambar } from './Unggah.jsx';
+import SampulPilih from './SampulPilih.jsx';
 
 // Lokal: Astro dev server. Produksi: domain situs (bisa ditimpa VITE_SITE_URL).
 const SITE = import.meta.env.DEV
@@ -446,8 +447,8 @@ function List({ col, go, say, onChange }) {
 
 /* ============ EDITOR ============ */
 const KOSONG = {
-  blog: { title: '', desc: '', date: '', kategori: 'Panduan', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false },
-  proyek: { title: '', desc: '', date: '', klien: '', layanan: 'Cloud PC', stack: '', status: 'Selesai', unggulan: false, draft: false },
+  blog: { title: '', desc: '', date: '', kategori: 'Panduan', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false, gambar: '', og: '', tags: [] },
+  proyek: { title: '', desc: '', date: '', klien: '', layanan: 'Cloud PC', stack: '', status: 'Selesai', unggulan: false, draft: false, gambar: '', og: '', tags: [] },
   berita: { title: '', desc: '', date: '', tag: 'Pengumuman', draft: false },
   legal: { title: '', desc: '', diperbarui: '', ringkas: '', lang: 'id' },
 };
@@ -657,6 +658,33 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
 
             <div className="card">
               <h3 className="sec">Metadata</h3>
+
+              {/*
+                Berlaku untuk semua koleksi. `gambar` dipakai situs sebagai
+                sampul kartu, og:image, dan entri image sitemap; `og` memaksa
+                gambar Open Graph sendiri bila sampulnya tidak layak jadi
+                pratinjau tautan.
+              */}
+              <SampulPilih nilai={fm.gambar || ''} onUbah={(v) => set('gambar', v)} say={say} />
+              <div className="field">
+                <label>Gambar Open Graph <span className="hint">(opsional)</span></label>
+                <input
+                  value={fm.og || ''}
+                  onChange={(e) => set('og', e.target.value.trim())}
+                  placeholder="Kosong = pakai gambar sampul"
+                />
+              </div>
+              {'tags' in (KOSONG[col] || {}) && (
+                <div className="field">
+                  <label>Tag</label>
+                  <input
+                    value={Array.isArray(fm.tags) ? fm.tags.join(', ') : (fm.tags || '')}
+                    onChange={(e) =>
+                      set('tags', e.target.value.split(',').map((t) => t.trim()).filter(Boolean))}
+                    placeholder="cloud, gpu, studio"
+                  />
+                </div>
+              )}
 
               {col === 'blog' && (
                 <>

@@ -10,7 +10,8 @@
  */
 import matter from 'gray-matter';
 import { Router, bacaBody, json, Galat } from './http.js';
-import { pasangAuth, wajibMasuk } from './auth.js';
+import { pasangAuth, wajibMasuk, ipDari } from './auth.js';
+import { kirimPesan } from './surat.js';
 import * as kunci from './kunci.js';
 import * as media from './media.js';
 import { cerminMediaLokal, hapusCerminLokal } from './cermin.js';
@@ -23,6 +24,11 @@ import * as gh from './github.js';
  * `lang` WAJIB masuk `fields`. Tanpa itu, whitelist di bawah (clean) membuang
  * frontmatter `lang: "en"` setiap kali berkas terjemahan disimpan, dan situs
  * kehilangan halaman EN-nya secara diam-diam.
+ *
+ * Aturan yang sama berlaku untuk `gambar`, `og`, `diperbarui`, dan `tags`:
+ * semuanya ada di skema situs. Kalau tidak terdaftar di sini, panel akan
+ * menghapus gambar sampul artikel setiap kali artikelnya disimpan — hilang
+ * tanpa pesan apa pun.
  */
 export const BAHASA = ['id', 'en'];
 
@@ -30,26 +36,26 @@ export const COLLECTIONS = {
   blog: {
     dir: 'blog',
     label: 'Blog',
-    fields: ['title', 'desc', 'date', 'kategori', 'penulis', 'baca', 'unggulan', 'draft', 'lang'],
-    defaults: { kategori: 'Umum', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false, lang: 'id' },
+    fields: ['title', 'desc', 'date', 'kategori', 'penulis', 'baca', 'unggulan', 'draft', 'lang', 'gambar', 'og', 'diperbarui', 'tags'],
+    defaults: { kategori: 'Umum', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false, lang: 'id', tags: [] },
   },
   proyek: {
     dir: 'proyek',
     label: 'Proyek',
-    fields: ['title', 'desc', 'date', 'klien', 'layanan', 'stack', 'status', 'unggulan', 'draft', 'lang'],
-    defaults: { klien: '', layanan: 'Cloud PC', stack: [], status: 'Selesai', unggulan: false, draft: false, lang: 'id' },
+    fields: ['title', 'desc', 'date', 'klien', 'layanan', 'stack', 'status', 'unggulan', 'draft', 'lang', 'gambar', 'og', 'diperbarui', 'tags'],
+    defaults: { klien: '', layanan: 'Cloud PC', stack: [], status: 'Selesai', unggulan: false, draft: false, lang: 'id', tags: [] },
   },
   berita: {
     dir: 'berita',
     label: 'Berita',
-    fields: ['title', 'desc', 'date', 'tag', 'draft', 'lang'],
-    defaults: { tag: 'Pengumuman', draft: false, lang: 'id' },
+    fields: ['title', 'desc', 'date', 'tag', 'draft', 'lang', 'gambar', 'og', 'diperbarui', 'tags'],
+    defaults: { tag: 'Pengumuman', draft: false, lang: 'id', tags: [] },
   },
   legal: {
     dir: 'legal',
     label: 'Legal',
     // Skema legal situs: title, desc, diperbarui (string, bukan Date), ringkas?, lang
-    fields: ['title', 'desc', 'diperbarui', 'ringkas', 'lang'],
+    fields: ['title', 'desc', 'diperbarui', 'ringkas', 'lang', 'gambar', 'og', 'tags'],
     defaults: { ringkas: '', lang: 'id' },
     // Tidak punya kolom `date` — daftar diurutkan menurut judul.
     tanpaTanggal: true,
@@ -160,6 +166,50 @@ function proyekDari(req) {
 function buatRouter() {
   const r = new Router();
 
+  /*
+   * CORS — HANYA untuk rute publik yang memang dipanggil dari domain situs.
+   *
+   * Panel admin sendiri satu asal dengan API ini, jadi tidak butuh CORS.
+   * Yang butuh cuma form kontak di xyverse.my.id, yang mengirim ke
+   * admin.xyverse.my.id. Daftar asal dibiarkan sempit dan bisa diperluas
+   * lewat CORS_ASAL (dipisah koma); '*' sengaja tidak pernah dipakai karena
+   * rute lain membawa sesi dan kunci API.
+   */
+  const ASAL_DIIZINKAN = new Set(
+    (process.env.CORS_ASAL || 'https://xyverse.my.id,http://localhost:4321,http://127.0.0.1:4321')
+      .split(',').map((x) => x.trim()).filter(Boolean),
+  );
+  const RUTE_PUBLIK = new Set(['/api/pesan']);
+
+  /** Tulis kepala CORS bila asalnya diizinkan. Mengembalikan true bila ditulis. */
+  const kepalaCors = (req, res) => {
+    const asal = String(req.headers.origin || '');
+    if (!ASAL_DIIZINKAN.has(asal)) return false;
+    res.setHeader('access-control-allow-origin', asal);
+    res.setHeader('vary', 'Origin');
+    res.setHeader('access-control-allow-methods', 'POST, OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type');
+    res.setHeader('access-control-max-age', '600');
+    return true;
+  };
+
+  /*
+   * Preflight ditangani DI SINI, bukan di middleware: router mencocokkan rute
+   * memakai method dan path, jadi OPTIONS tidak pernah sampai ke `tengah`.
+   * Tanpa ini peramban menerima 404 untuk preflight dan membatalkan
+   * permintaan aslinya — form kontak akan gagal tanpa pesan yang jelas.
+   */
+  r.pra((req, res) => {
+    if (!RUTE_PUBLIK.has(req.urlPath)) return json(res, 404, { error: 'Rute tidak ditemukan.' });
+    kepalaCors(req, res);
+    return json(res, 204, {});
+  });
+
+  r.pakai((req, res, next) => {
+    if (RUTE_PUBLIK.has(req.urlPath)) kepalaCors(req, res);
+    return next();
+  });
+
   // tubuh JSON untuk POST/PUT/DELETE
   r.pakai(async (req, res, next) => {
     // Semua kata kerja yang bisa membawa tubuh JSON. PATCH sengaja ikut:
@@ -174,10 +224,23 @@ function buatRouter() {
   pasangAuth(r);
 
   // wajib masuk untuk semua rute kecuali endpoint autentikasi terbuka
-  const TERBUKA = new Set(['/api/auth/konfig', '/api/auth/saya', '/api/auth/masuk', '/api/auth/keluar']);
+  const TERBUKA = new Set([
+    '/api/auth/konfig', '/api/auth/saya', '/api/auth/masuk', '/api/auth/keluar',
+    // Form kontak situs: pengunjung belum tentu punya akun apa pun.
+    '/api/pesan',
+  ]);
   r.pakai((req, res, next) => {
     if (TERBUKA.has(req.urlPath)) return next();
     return wajibMasuk(req, res, next);
+  });
+
+  /* ---- surat masuk dari form kontak situs ----
+   *
+   * Publik dengan sengaja: penjaganya ada di server/surat.js (honeypot,
+   * batas laju per IP, batas panjang bidang).
+   */
+  r.jalan('POST', '/api/pesan', async (req, res) => {
+    json(res, 200, await kirimPesan(req.body || {}, ipDari(req)));
   });
 
   pasangAI(r);
@@ -467,6 +530,10 @@ function buatRouter() {
     // berikutnya bolak-balik mengubah format. Situs tidak peduli — skemanya
     // `z.coerce.date()` di content.config.ts, jadi keduanya valid.
     if (clean.date instanceof Date) clean.date = clean.date.toISOString().slice(0, 10);
+    // `diperbarui` di blog/berita/proyek adalah tanggal; di legal ia teks
+    // tampilan ("17 September 2026"). Hanya yang benar-benar Date yang
+    // dinormalkan, supaya teks di legal tidak ikut diubah.
+    if (clean.diperbarui instanceof Date) clean.diperbarui = clean.diperbarui.toISOString().slice(0, 10);
 
     const repo = gh.reposSitus();
     const target = slugBaru ? slugify(slugBaru) : slug;

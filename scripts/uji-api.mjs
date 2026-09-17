@@ -27,6 +27,8 @@ process.env.ADMIN_USER = 'admin';
 process.env.ADMIN_PASS_HASH = bcrypt.hashSync('sandi-uji-api', 10);
 process.env.SESSION_SECRET = 'x'.repeat(48);
 process.env.ADMIN_API_KEY = 'xya_bootstraptopeng0000000000000000000000';
+process.env.RESEND_API_KEY = 're_kunci_uji_palsu';
+process.env.SURAT_TUJUAN = 'halo@xyverse.my.id';
 
 const { tanganiApi } = await import('../server/core.js');
 const { normalKedaluwarsa } = await import('../server/kunci.js');
@@ -49,8 +51,18 @@ const dihapus = [];   // path
 
 const okJSON = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
 
+const suratTerkirim = []; // muatan yang sampai ke Resend
+
 globalThis.fetch = async (url, opsi = {}) => {
   const u = new URL(url);
+
+  // Resend — harus dicek SEBELUM logika GitHub: pemanggil surat tidak
+  // mengirim cookie sesi dan jalurnya bukan /repos/...
+  if (u.host === 'api.resend.com') {
+    suratTerkirim.push({ muatan: JSON.parse(opsi.body), auth: opsi.headers?.authorization });
+    return okJSON({ id: 'surat-uji-1' });
+  }
+
   const path = decodeURIComponent(u.pathname.replace(/^\/repos\/[^/]+\/[^/]+\/contents\//, ''));
   const method = (opsi.method || 'GET').toUpperCase();
 
@@ -521,6 +533,118 @@ const metaMedia = (await kirim('GET', '/api/meta', hdr(BOOT))).data;
 cek('meta.media ada', Boolean(metaMedia?.media), JSON.stringify(metaMedia?.media));
 cek('meta.media menyebut webp', metaMedia?.media?.jenis?.includes('webp'));
 cek('meta.media tidak menyebut svg', !metaMedia?.media?.jenis?.includes('svg'));
+
+console.log('\n[18] Surat masuk dari form kontak');
+const PESAN_OK = {
+  nama: 'Haekal Saputra',
+  email: 'haekal@example.com',
+  perusahaan: 'XySpace',
+  topik: 'Sewa Cloud PC',
+  budget: '5-15 juta',
+  pesan: 'Halo, saya mau tanya soal Cloud PC untuk studio kecil.',
+};
+cek('POST /api/pesan tidak butuh login',
+  (await kirim('POST', '/api/pesan', { body: PESAN_OK })).status === 200);
+cek('suratnya benar-benar diteruskan ke Resend', suratTerkirim.length === 1,
+  `terkirim ${suratTerkirim.length}`);
+cek('kunci API terkirim ke Resend', suratTerkirim[0]?.auth === 'Bearer re_kunci_uji_palsu');
+cek('reply_to diisi email pengirim, BUKAN from',
+  suratTerkirim[0]?.muatan?.reply_to === 'haekal@example.com' &&
+  !String(suratTerkirim[0]?.muatan?.from).includes('haekal@'),
+  JSON.stringify({ from: suratTerkirim[0]?.muatan?.from, reply_to: suratTerkirim[0]?.muatan?.reply_to }));
+cek('tujuan surat dari lingkungan',
+  JSON.stringify(suratTerkirim[0]?.muatan?.to) === '["halo@xyverse.my.id"]');
+cek('judul menyebut kebutuhan dan nama',
+  /Sewa Cloud PC/.test(suratTerkirim[0]?.muatan?.subject || '') &&
+  /Haekal/.test(suratTerkirim[0]?.muatan?.subject || ''));
+
+/* Honeypot: bot mengisi kolom tersembunyi. Diterima lalu dibuang tanpa suara —
+ * membalas 400 justru memberitahu bot bahwa ia ketahuan. */
+const sebelumSpam = suratTerkirim.length;
+const bot = await kirim('POST', '/api/pesan', { body: { ...PESAN_OK, situs_web: 'http://spam.example' } });
+cek('honeypot dibalas 200 dan dibuang',
+  bot.status === 200 && bot.data?.dibuang === true && suratTerkirim.length === sebelumSpam,
+  JSON.stringify(bot.data));
+
+cek('email tidak sah → 400',
+  (await kirim('POST', '/api/pesan', { body: { ...PESAN_OK, email: 'bukan-email' } })).status === 400);
+cek('pesan terlalu pendek → 400',
+  (await kirim('POST', '/api/pesan', { body: { ...PESAN_OK, pesan: 'hai' } })).status === 400);
+cek('nama kosong → 400',
+  (await kirim('POST', '/api/pesan', { body: { ...PESAN_OK, nama: ' ' } })).status === 400);
+/*
+ * GET /api/pesan jatuh ke wildcard /api/:col dan ditolak sebagai koleksi
+ * yang tidak dikenal (400), bukan 404. Bukan bug yang layak diperbaiki —
+ * yang penting ia tidak pernah membalas 200 dan tidak membocorkan apa pun.
+ */
+const getPesan = await kirim('GET', '/api/pesan');
+cek('GET /api/pesan tidak pernah berhasil', getPesan.status >= 400, `status ${getPesan.status}`);
+
+/* Semua permintaan uji datang dari 127.0.0.1, jadi yang berikutnya kena batas. */
+let kenaBatas = 0;
+for (let i = 0; i < 5; i++) {
+  const r = await kirim('POST', '/api/pesan', { body: PESAN_OK });
+  if (r.status === 429) kenaBatas++;
+}
+cek('batas laju per IP bekerja (429)', kenaBatas > 0, `429 sebanyak ${kenaBatas} dari 5 percobaan`);
+
+/*
+ * Preflight CORS. Ini yang paling mudah terlewat: router mencocokkan rute
+ * memakai method dan path, jadi OPTIONS tidak pernah sampai ke middleware
+ * dan dulu dibalas 404. Peramban lalu membatalkan permintaan aslinya dan
+ * form kontak gagal tanpa pesan yang jelas.
+ */
+const preflight = await kirim('OPTIONS', '/api/pesan', { origin: 'https://xyverse.my.id' });
+cek('preflight /api/pesan → 204', preflight.status === 204, `status ${preflight.status}`);
+cek('preflight membawa access-control-allow-origin',
+  preflight.kepala?.['access-control-allow-origin'] === 'https://xyverse.my.id',
+  JSON.stringify(preflight.kepala));
+cek('preflight untuk rute non-publik tetap 404',
+  (await kirim('OPTIONS', '/api/blog', { origin: 'https://xyverse.my.id' })).status === 404);
+const asalLiar = await kirim('POST', '/api/pesan', {
+  origin: 'https://situs-penipu.example', body: PESAN_OK,
+});
+cek('asal yang tidak diizinkan tidak diberi kepala CORS',
+  !asalLiar.kepala?.['access-control-allow-origin'],
+  JSON.stringify(asalLiar.kepala));
+
+console.log('\n[19] Field baru situs tidak dibuang whitelist');
+/*
+ * Regresi bug `lang`: field yang tidak terdaftar di COLLECTIONS.fields hilang
+ * setiap kali artikel disimpan. `gambar`, `og`, `diperbarui`, dan `tags`
+ * sekarang ada di skema situs, jadi harus ikut terdaftar di sini.
+ */
+const simpanGambar = await kirim('PUT', '/api/blog/uji-sampul', {
+  ...H,
+  body: {
+    // Bentuk yang diharapkan rute ini: frontmatter terpisah dari isi.
+    frontmatter: {
+      title: 'Uji Sampul', desc: 'D', date: '2026-09-17', kategori: 'Teknis', baca: 3,
+      gambar: '/media/20260917-abcd-sampul.webp',
+      og: '/media/20260917-abcd-og.webp',
+      diperbarui: '2026-09-18',
+      tags: ['cloud', 'gpu'],
+    },
+    body: 'Isi artikel uji.',
+  },
+});
+cek('PUT dengan gambar/og/tags diterima', simpanGambar.status === 200, `status ${simpanGambar.status}`);
+const berkasSampul = String(isiLama['src/content/blog/uji-sampul.md'] || '');
+cek('gambar ikut tertulis ke berkas', berkasSampul.includes('/media/20260917-abcd-sampul.webp'),
+  berkasSampul.slice(0, 200));
+cek('og ikut tertulis', berkasSampul.includes('/media/20260917-abcd-og.webp'));
+cek('tags ikut tertulis', berkasSampul.includes('cloud') && berkasSampul.includes('gpu'));
+cek('diperbarui dinormalkan ke YYYY-MM-DD', berkasSampul.includes('2026-09-18'));
+// GET satu dokumen membalas { slug, bahasa, frontmatter, body }.
+const bacaLagi = await kirim('GET', '/api/blog/uji-sampul', H);
+const fmLagi = bacaLagi.data?.frontmatter || {};
+cek('gambar terbaca kembali lewat GET',
+  fmLagi.gambar === '/media/20260917-abcd-sampul.webp',
+  JSON.stringify(fmLagi).slice(0, 240));
+cek('tags terbaca kembali sebagai larik',
+  Array.isArray(fmLagi.tags) && fmLagi.tags.length === 2, JSON.stringify(fmLagi.tags));
+cek('og terbaca kembali', fmLagi.og === '/media/20260917-abcd-og.webp');
+await kirim('DELETE', '/api/blog/uji-sampul', H);
 
 console.log(gagal ? `\n${gagal} pemeriksaan GAGAL\n` : '\nSemua pemeriksaan lolos\n');
 process.exit(gagal ? 1 : 0);

@@ -60,6 +60,21 @@ export class Router {
   constructor() {
     this.tengah = []; // middleware global (dijalankan sebelum rute mana pun)
     this.rute = [];
+    this.praTerbang = null; // penangan preflight CORS (OPTIONS)
+  }
+
+  /**
+   * Pasang penangan preflight.
+   *
+   * OPTIONS tidak akan pernah cocok dengan rute mana pun — pencocokan rute
+   * memakai method DAN path, dan tidak ada rute yang didaftarkan untuk
+   * OPTIONS. Tanpa kaitan ini, preflight jatuh ke "Rute tidak ditemukan"
+   * (404) dan peramban membatalkan permintaan aslinya, jadi middleware CORS
+   * di `tengah` tidak pernah sempat berjalan.
+   */
+  pra(fn) {
+    this.praTerbang = fn;
+    return this;
   }
 
   /** Tambah middleware: (req, res, next) */
@@ -105,6 +120,10 @@ export class Router {
 
     (async () => {
       if (!rantai) {
+        if ((req.method || 'GET') === 'OPTIONS' && this.praTerbang) {
+          await this.praTerbang(req, res);
+          if (res.writableEnded) return;
+        }
         json(res, 404, { error: 'Rute tidak ditemukan.' });
         return;
       }
