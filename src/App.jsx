@@ -210,8 +210,10 @@ function Dash({ stats, go }) {
                 <a className="btn btn-g" href={SITE} target="_blank" rel="noreferrer"><I.eye /> Pratinjau situs</a>
               </div>
               <p style={{ fontSize: 13, color: 'var(--txt-2)', marginTop: 16, lineHeight: 1.65 }}>
-                Perubahan tersimpan langsung sebagai file Markdown di folder konten website.
-                Server Astro memuat ulang otomatis, jadi hasilnya langsung terlihat di situs.
+                Setiap simpan menjadi satu commit Markdown di repo{' '}
+                <code>xyverse-web</code>, lalu Vercel men-deploy ulang situs —
+                biasanya muncul dalam ±30 detik. Tab <strong>Deploy</strong>{' '}
+                memperlihatkan commit terakhir dan status token.
               </p>
             </div>
           </>
