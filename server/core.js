@@ -14,28 +14,56 @@ import { pasangAuth, wajibMasuk } from './auth.js';
 import { pasangAI } from './ai.js';
 import * as gh from './github.js';
 
+/*
+ * DAFTAR KOLEKSI — HARUS cocok dengan skema di xyverse-web/src/content.config.ts.
+ *
+ * `lang` WAJIB masuk `fields`. Tanpa itu, whitelist di bawah (clean) membuang
+ * frontmatter `lang: "en"` setiap kali berkas terjemahan disimpan, dan situs
+ * kehilangan halaman EN-nya secara diam-diam.
+ */
+export const BAHASA = ['id', 'en'];
+
 export const COLLECTIONS = {
   blog: {
     dir: 'blog',
     label: 'Blog',
-    fields: ['title', 'desc', 'date', 'kategori', 'penulis', 'baca', 'unggulan', 'draft'],
-    defaults: { kategori: 'Umum', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false },
+    fields: ['title', 'desc', 'date', 'kategori', 'penulis', 'baca', 'unggulan', 'draft', 'lang'],
+    defaults: { kategori: 'Umum', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false, lang: 'id' },
   },
   proyek: {
     dir: 'proyek',
     label: 'Proyek',
-    fields: ['title', 'desc', 'date', 'klien', 'layanan', 'stack', 'status', 'unggulan', 'draft'],
-    defaults: { klien: '', layanan: 'Cloud PC', stack: [], status: 'Selesai', unggulan: false, draft: false },
+    fields: ['title', 'desc', 'date', 'klien', 'layanan', 'stack', 'status', 'unggulan', 'draft', 'lang'],
+    defaults: { klien: '', layanan: 'Cloud PC', stack: [], status: 'Selesai', unggulan: false, draft: false, lang: 'id' },
   },
   berita: {
     dir: 'berita',
     label: 'Berita',
-    fields: ['title', 'desc', 'date', 'tag', 'draft'],
-    defaults: { tag: 'Pengumuman', draft: false },
+    fields: ['title', 'desc', 'date', 'tag', 'draft', 'lang'],
+    defaults: { tag: 'Pengumuman', draft: false, lang: 'id' },
+  },
+  legal: {
+    dir: 'legal',
+    label: 'Legal',
+    // Skema legal situs: title, desc, diperbarui (string, bukan Date), ringkas?, lang
+    fields: ['title', 'desc', 'diperbarui', 'ringkas', 'lang'],
+    defaults: { ringkas: '', lang: 'id' },
+    // Tidak punya kolom `date` — daftar diurutkan menurut judul.
+    tanpaTanggal: true,
   },
 };
 
 const BASE = 'src/content';
+
+/** Normalisasi kode bahasa dari query/body. Salah nilai -> 400, bukan diam-diam jadi 'id'. */
+export function bahasaDari(nilai) {
+  const b = String(nilai ?? 'id').toLowerCase().trim();
+  if (!BAHASA.includes(b)) throw new Galat(`Bahasa tidak dikenal: "${b}". Pakai ${BAHASA.join(' atau ')}.`, 400);
+  return b;
+}
+
+/** Subfolder bahasa: 'id' -> '', 'en' -> 'en' (sesuai tata letak repo situs). */
+const subBahasa = (b) => (b === 'id' ? '' : b);
 
 const slugify = (s) =>
   String(s)
@@ -46,28 +74,43 @@ const slugify = (s) =>
     .replace(/-+/g, '-')
     .slice(0, 80);
 
-function pathKonten(col, slug) {
+function pathKonten(col, slug, bahasa = 'id') {
   if (!COLLECTIONS[col]) throw new Galat('Koleksi tidak dikenal.', 400);
   const clean = String(slug || '')
     .split('/')
     .map((s) => s.replace(/[^a-zA-Z0-9-_]/g, ''))
     .join('/');
   if (!clean) throw new Galat('Slug tidak valid.', 400);
-  return `${BASE}/${COLLECTIONS[col].dir}/${clean}.md`;
+  const sub = subBahasa(bahasa);
+  return `${BASE}/${COLLECTIONS[col].dir}/${sub ? sub + '/' : ''}${clean}.md`;
 }
 
 /* ---------- cache ringan (20 dtk; per instans — wajar di serverless) ---------- */
 const TILIK = 20 * 1000;
 const cache = new Map();
 
-async function daftarKoleksi(key) {
+/** "17 September 2026" — format `diperbarui` yang dipakai dokumen legal. */
+function tanggalPanjang(bahasa = 'id') {
+  return new Date().toLocaleDateString(bahasa === 'en' ? 'en-GB' : 'id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Asia/Jakarta',
+  });
+}
+
+async function daftarKoleksi(key, bahasa = 'id') {
   const col = COLLECTIONS[key];
   if (!col) throw new Galat('Koleksi tidak dikenal.', 400);
-  const c = cache.get(key);
+  const kunci = `${key}:${bahasa}`;
+  const c = cache.get(kunci);
   if (c && Date.now() - c.waktu < TILIK) return c.data;
 
   const repo = gh.reposSitus();
-  const berkas = (await gh.daftarDirektori(repo, `${BASE}/${col.dir}`)).filter(
+  const sub = subBahasa(bahasa);
+  const dir = `${BASE}/${col.dir}${sub ? '/' + sub : ''}`;
+  // Hanya .md langsung di folder ini — subfolder `en/` bukan berkas konten.
+  const berkas = (await gh.daftarDirektori(repo, dir)).filter(
     (f) => f.type === 'file' && f.name.endsWith('.md'),
   );
   const items = await Promise.all(
@@ -77,14 +120,17 @@ async function daftarKoleksi(key) {
       return {
         slug: f.name.replace(/\.md$/, ''),
         ...data,
+        // Frontmatter tanpa `lang` berarti bahasa utama — jangan biarkan undefined.
+        lang: data.lang ?? 'id',
         date: data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date,
         kata: content.trim().split(/\s+/).filter(Boolean).length,
         diubah: f.last_modified || null,
       };
     }),
   );
-  items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  cache.set(key, { waktu: Date.now(), data: items });
+  if (col.tanpaTanggal) items.sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  else items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  cache.set(kunci, { waktu: Date.now(), data: items });
   return items;
 }
 
@@ -138,11 +184,13 @@ function buatRouter() {
       repo: gh.reposSitus(),
       url: `https://github.com/${gh.reposSitus()}`,
       cabang: gh.CFG.cabang(),
+      bahasa: BAHASA,
       collections: Object.entries(COLLECTIONS).map(([key, v]) => ({
         key,
         label: v.label,
         fields: v.fields,
         defaults: v.defaults,
+        tanpaTanggal: Boolean(v.tanpaTanggal),
       })),
     });
   });
@@ -150,9 +198,17 @@ function buatRouter() {
   r.jalan('GET', '/api/stats', async (_req, res) => {
     const out = {};
     for (const [key, col] of Object.entries(COLLECTIONS)) {
-      const items = await daftarKoleksi(key);
-      const draft = items.filter((i) => i.draft).length;
-      out[key] = { total: items.length, draft, publik: items.length - draft, label: col.label };
+      // Dua bahasa dihitung terpisah; `total` = gabungan keduanya.
+      const [id, en] = await Promise.all([daftarKoleksi(key, 'id'), daftarKoleksi(key, 'en')]);
+      const draft = id.filter((i) => i.draft).length;
+      out[key] = {
+        label: col.label,
+        total: id.length + en.length,
+        draft,
+        publik: id.length - draft,
+        id: id.length,
+        en: en.length,
+      };
     }
     json(res, 200, out);
   });
@@ -242,21 +298,25 @@ function buatRouter() {
   /* ---- CRUD konten (GitHub Contents API) ---- */
 
   r.jalan('GET', '/api/:col', async (req, res) => {
-    json(res, 200, await daftarKoleksi(req.params.col));
+    const bahasa = bahasaDari(req.query?.bahasa);
+    json(res, 200, await daftarKoleksi(req.params.col, bahasa));
   });
 
   r.jalan('GET', '/api/:col/:slug', async (req, res) => {
+    const bahasa = bahasaDari(req.query?.bahasa);
     const { col, slug } = req.params;
-    const raw = await gh.bacaIsi(gh.reposSitus(), pathKonten(col, slug));
+    const raw = await gh.bacaIsi(gh.reposSitus(), pathKonten(col, slug, bahasa));
     const { data, content } = matter(raw);
     json(res, 200, {
       slug,
+      bahasa,
       frontmatter: { ...data, date: data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date },
       body: content.trim(),
     });
   });
 
   r.jalan('PUT', '/api/:col/:slug', async (req, res) => {
+    const bahasa = bahasaDari(req.query?.bahasa ?? req.body?.bahasa);
     const { col, slug } = req.params;
     const cfg = COLLECTIONS[col];
     if (!cfg) throw new Galat('Koleksi tidak dikenal.', 400);
@@ -264,40 +324,56 @@ function buatRouter() {
     if (!frontmatter.title) throw new Galat('Judul wajib diisi.', 400);
 
     const fm = { ...cfg.defaults, ...frontmatter };
-    if (!fm.date) fm.date = new Date().toISOString().slice(0, 10);
-    if (typeof fm.stack === 'string') fm.stack = fm.stack.split(',').map((s) => s.trim()).filter(Boolean);
-    if (fm.baca != null) fm.baca = Number(fm.baca) || 5;
+    // Bahasa ditentukan oleh folder tujuan, BUKAN oleh isi form — ini yang
+    // mencegah frontmatter `lang` ketimpa saat berkas terjemahan disimpan.
+    fm.lang = bahasa;
+    if (!cfg.tanpaTanggal) {
+      if (!fm.date) fm.date = new Date().toISOString().slice(0, 10);
+      if (typeof fm.stack === 'string') fm.stack = fm.stack.split(',').map((s) => s.trim()).filter(Boolean);
+      if (fm.baca != null) fm.baca = Number(fm.baca) || 5;
+    } else if (!fm.diperbarui) {
+      fm.diperbarui = tanggalPanjang(bahasa);
+    }
 
     // hanya simpan field yang dikenal skema
     const clean = {};
     for (const k of cfg.fields) if (fm[k] !== undefined) clean[k] = fm[k];
+    // Tanggal dinormalkan ke "YYYY-MM-DD".
+    //
+    // Disimpan sebagai STRING, bukan Date. gray-matter/js-yaml akan menulis
+    // `date: '2026-09-03'` (diapit kutip). Kutip itu perlu: tanpa kutip YAML
+    // membaca ulang nilainya sebagai Date, bukan string, dan tiap commit
+    // berikutnya bolak-balik mengubah format. Situs tidak peduli — skemanya
+    // `z.coerce.date()` di content.config.ts, jadi keduanya valid.
+    if (clean.date instanceof Date) clean.date = clean.date.toISOString().slice(0, 10);
 
     const repo = gh.reposSitus();
     const target = slugBaru ? slugify(slugBaru) : slug;
     const isi = matter.stringify(`\n${body.trim()}\n`, clean);
+    const lokasi = bahasa === 'id' ? `${col}/${target}` : `${col}/en/${target}`;
 
     // Urutan sengaja: tulis berkas BARU dulu, baru hapus yang lama.
     // Kalau tulis gagal, tidak ada yang hilang; kalau hapus gagal,
     // konten tetap aman (hanya ada dua file — dilaporkan, bukan ditelan).
     await gh.tulisBerkas(
       repo,
-      pathKonten(col, target),
+      pathKonten(col, target, bahasa),
       isi,
       slugBaru
-        ? `Buat ${col}/${target} (via dashboard)`
-        : `Perbarui ${col}/${target} (via dashboard)`,
+        ? `Buat ${lokasi} (via dashboard)`
+        : `Perbarui ${lokasi} (via dashboard)`,
     );
 
     if (slugBaru && target !== slug) {
       try {
         await gh.hapusBerkas(
           repo,
-          pathKonten(col, slug),
-          `Ganti nama ${col}/${slug} → ${col}/${target} (via dashboard)`,
+          pathKonten(col, slug, bahasa),
+          `Ganti nama ${lokasi} ← ${bahasa === 'id' ? col : col + '/en'}/${slug} (via dashboard)`,
         );
       } catch (e) {
         if (e.status !== 404) {
-          cache.delete(col);
+          cache.delete(`${col}:${bahasa}`);
           throw new Galat(
             `Berkas "${target}" dibuat, tetapi berkas lama "${slug}" gagal dihapus: ${e.message}. Hapus manual bila perlu.`,
             502,
@@ -305,14 +381,19 @@ function buatRouter() {
         }
       }
     }
-    cache.delete(col);
-    json(res, 200, { ok: true, slug: target });
+    cache.delete(`${col}:${bahasa}`);
+    json(res, 200, { ok: true, slug: target, bahasa });
   });
 
   r.jalan('DELETE', '/api/:col/:slug', async (req, res) => {
+    const bahasa = bahasaDari(req.query?.bahasa);
     const { col, slug } = req.params;
-    await gh.hapusBerkas(gh.reposSitus(), pathKonten(col, slug), `Hapus ${col}/${slug} (via dashboard)`);
-    cache.delete(col);
+    await gh.hapusBerkas(
+      gh.reposSitus(),
+      pathKonten(col, slug, bahasa),
+      `Hapus ${bahasa === 'id' ? col : col + '/en'}/${slug} (via dashboard)`,
+    );
+    cache.delete(`${col}:${bahasa}`);
     json(res, 200, { ok: true });
   });
 

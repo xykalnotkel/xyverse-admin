@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, slugify, fmtTgl } from './api.js';
+import { api, slugify, fmtTgl, BAHASA } from './api.js';
 import { I } from './Icons.jsx';
 import { PanelAI, StudioAI } from './AI.jsx';
 import Login from './Login.jsx';
@@ -81,6 +81,7 @@ function Dashboard({ pengguna, onKeluar }) {
     { key: 'blog', label: 'Blog', Ic: I.blog },
     { key: 'proyek', label: 'Proyek', Ic: I.proyek },
     { key: 'berita', label: 'Berita', Ic: I.berita },
+    { key: 'legal', label: 'Legal', Ic: I.shield },
   ];
 
   return (
@@ -136,8 +137,9 @@ function Dashboard({ pengguna, onKeluar }) {
         {view.name === 'ai' && <StudioAI go={setView} say={say} />}
         {view.name === 'list' && <List col={view.col} go={setView} say={say} onChange={refresh} />}
         {view.name === 'edit' && (
-          <Editor key={`${view.col}-${view.slug || 'baru'}-${view.seed || ''}`}
-            col={view.col} slug={view.slug} seed={view.seed} go={setView} say={say} onChange={refresh} />
+          <Editor key={`${view.col}-${view.bahasa || 'id'}-${view.slug || 'baru'}-${view.seed || ''}`}
+            col={view.col} slug={view.slug} seed={view.seed} bahasa={view.bahasa || 'id'}
+            go={setView} say={say} onChange={refresh} />
         )}
       </main>
 
@@ -166,7 +168,7 @@ function Dashboard({ pengguna, onKeluar }) {
 
 /* ============ DASBOR ============ */
 function Dash({ stats, go }) {
-  const map = { blog: I.blog, proyek: I.proyek, berita: I.berita };
+  const map = { blog: I.blog, proyek: I.proyek, berita: I.berita, legal: I.shield };
   return (
     <>
       <header className="top">
@@ -188,7 +190,9 @@ function Dash({ stats, go }) {
                     onClick={() => go({ name: 'list', col: key })}>
                     <div className="lbl"><Ic /> {s.label}</div>
                     <div className="num">{s.total}</div>
-                    <div className="sub">{s.publik} publik · {s.draft} draf</div>
+                    <div className="sub">
+                      {s.en != null ? `${s.id} ID · ${s.en} EN` : `${s.publik} publik · ${s.draft} draf`}
+                    </div>
                   </button>
                 );
               })}
@@ -221,24 +225,27 @@ function Dash({ stats, go }) {
 function List({ col, go, say, onChange }) {
   const [items, setItems] = useState(null);
   const [q, setQ] = useState('');
+  // Bahasa yang sedang dibuka — menentukan folder di repo situs.
+  const [bahasa, setBahasa] = useState('id');
 
   const load = useCallback(() => {
     setItems(null);
-    api.list(col).then(setItems).catch((e) => say(e.message, true));
-  }, [col, say]);
+    api.list(col, bahasa).then(setItems).catch((e) => say(e.message, true));
+  }, [col, bahasa, say]);
 
   useEffect(() => { load(); }, [load]);
 
   const del = async (slug) => {
-    if (!confirm(`Hapus "${slug}"? Tindakan ini tidak bisa dibatalkan.`)) return;
+    if (!confirm(`Hapus "${slug}" (${bahasa.toUpperCase()})? Tindakan ini tidak bisa dibatalkan.`)) return;
     try {
-      await api.remove(col, slug);
+      await api.remove(col, slug, bahasa);
       say('Berhasil dihapus');
       load(); onChange();
     } catch (e) { say(e.message, true); }
   };
 
-  const label = { blog: 'Blog', proyek: 'Proyek', berita: 'Berita' }[col];
+  const label = { blog: 'Blog', proyek: 'Proyek', berita: 'Berita', legal: 'Dokumen Legal' }[col];
+  const tanpaTanggal = col === 'legal';
   const shown = (items || []).filter(
     (i) => !q || (i.title + ' ' + i.slug).toLowerCase().includes(q.toLowerCase())
   );
@@ -251,7 +258,7 @@ function List({ col, go, say, onChange }) {
           <div className="sub">{items ? `${items.length} entri` : 'Memuat…'}</div>
         </div>
         <div className="spacer" />
-        <button className="btn btn-p" onClick={() => go({ name: 'edit', col, slug: null })}>
+        <button className="btn btn-p" onClick={() => go({ name: 'edit', col, slug: null, bahasa })}>
           <I.plus /> Buat baru
         </button>
       </header>
@@ -261,6 +268,13 @@ function List({ col, go, say, onChange }) {
           <div className="search">
             <I.search />
             <input placeholder={`Cari ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <div className="segs" role="tablist" aria-label="Bahasa konten">
+            {BAHASA.map((b) => (
+              <button key={b.kode} role="tab" aria-selected={bahasa === b.kode}
+                className={`seg ${bahasa === b.kode ? 'on' : ''}`}
+                title={b.label} onClick={() => setBahasa(b.kode)}>{b.kode.toUpperCase()}</button>
+            ))}
           </div>
         </div>
 
@@ -272,7 +286,7 @@ function List({ col, go, say, onChange }) {
             <p>{q ? 'Tidak ada hasil yang cocok.' : `Belum ada ${label.toLowerCase()}.`}</p>
             {!q && (
               <button className="btn btn-p" style={{ marginTop: 14 }}
-                onClick={() => go({ name: 'edit', col, slug: null })}>
+                onClick={() => go({ name: 'edit', col, slug: null, bahasa })}>
                 <I.plus /> Buat yang pertama
               </button>
             )}
@@ -287,9 +301,9 @@ function List({ col, go, say, onChange }) {
                   {col === 'proyek' && <th>Layanan</th>}
                   {col === 'proyek' && <th>Status</th>}
                   {col === 'berita' && <th>Tag</th>}
-                  <th>Tanggal</th>
+                  <th>{tanpaTanggal ? 'Diperbarui' : 'Tanggal'}</th>
                   <th>Kata</th>
-                  <th>Status</th>
+                  {!tanpaTanggal && <th>Status</th>}
                   <th />
                 </tr>
               </thead>
@@ -297,7 +311,7 @@ function List({ col, go, say, onChange }) {
                 {shown.map((it) => (
                   <tr key={it.slug}>
                     <td>
-                      <div className="ttl" onClick={() => go({ name: 'edit', col, slug: it.slug })}>{it.title}</div>
+                      <div className="ttl" onClick={() => go({ name: 'edit', col, slug: it.slug, bahasa })}>{it.title}</div>
                       <div className="slug">/{col}/{it.slug}</div>
                     </td>
                     {col === 'blog' && <td><span className="pill br">{it.kategori}</span></td>}
@@ -306,21 +320,25 @@ function List({ col, go, say, onChange }) {
                       <td><span className={`pill ${it.status === 'Selesai' ? 'ok' : it.status === 'Berjalan' ? 'wr' : ''}`}>{it.status}</span></td>
                     )}
                     {col === 'berita' && <td><span className="pill br">{it.tag}</span></td>}
-                    <td style={{ whiteSpace: 'nowrap', color: 'var(--txt-2)' }}>{fmtTgl(it.date)}</td>
-                    <td style={{ color: 'var(--txt-2)' }}>{it.kata}</td>
-                    <td>
-                      {it.draft
-                        ? <span className="pill wr">Draf</span>
-                        : <span className="pill ok">Publik</span>}
+                    <td style={{ whiteSpace: 'nowrap', color: 'var(--txt-2)' }}>
+                      {tanpaTanggal ? (it.diperbarui || '—') : fmtTgl(it.date)}
                     </td>
+                    <td style={{ color: 'var(--txt-2)' }}>{it.kata}</td>
+                    {!tanpaTanggal && (
+                      <td>
+                        {it.draft
+                          ? <span className="pill wr">Draf</span>
+                          : <span className="pill ok">Publik</span>}
+                      </td>
+                    )}
                     <td>
                       <div className="acts">
                         {!it.draft && (
                           <a className="btn btn-g icon" title="Lihat di situs"
-                            href={`${SITE}/${SITE_LANG}/${col}/${it.slug}/`} target="_blank" rel="noreferrer"><I.eye /></a>
+                            href={`${SITE}/${bahasa}/${col}/${it.slug}/`} target="_blank" rel="noreferrer"><I.eye /></a>
                         )}
                         <button className="btn btn-g icon" title="Ubah"
-                          onClick={() => go({ name: 'edit', col, slug: it.slug })}><I.edit /></button>
+                          onClick={() => go({ name: 'edit', col, slug: it.slug, bahasa })}><I.edit /></button>
                         <button className="btn btn-d icon" title="Hapus" onClick={() => del(it.slug)}><I.trash /></button>
                       </div>
                     </td>
@@ -340,14 +358,25 @@ const KOSONG = {
   blog: { title: '', desc: '', date: '', kategori: 'Panduan', penulis: 'Tim Xyverse', baca: 5, unggulan: false, draft: false },
   proyek: { title: '', desc: '', date: '', klien: '', layanan: 'Cloud PC', stack: '', status: 'Selesai', unggulan: false, draft: false },
   berita: { title: '', desc: '', date: '', tag: 'Pengumuman', draft: false },
+  legal: { title: '', desc: '', diperbarui: '', ringkas: '', lang: 'id' },
 };
 
-function Editor({ col, slug, seed, go, say, onChange }) {
+/** Tanggal panjang gaya dokumen legal: "17 September 2026". */
+const tglPanjang = (bahasa = 'id') =>
+  new Date().toLocaleDateString(bahasa === 'en' ? 'en-GB' : 'id-ID', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+
+function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
   const baru = !slug;
+  const legal = col === 'legal';
   const [fm, setFm] = useState(() => ({
     ...KOSONG[col],
     title: seed || '',
-    date: new Date().toISOString().slice(0, 10),
+    lang: bahasa,
+    ...(legal
+      ? { diperbarui: tglPanjang(bahasa) }
+      : { date: new Date().toISOString().slice(0, 10) }),
   }));
   const [body, setBody] = useState('');
   const [slugNow, setSlugNow] = useState('');
@@ -356,14 +385,14 @@ function Editor({ col, slug, seed, go, say, onChange }) {
 
   useEffect(() => {
     if (baru) return;
-    api.get(col, slug)
+    api.get(col, slug, bahasa)
       .then((d) => {
         const f = { ...KOSONG[col], ...d.frontmatter };
         if (Array.isArray(f.stack)) f.stack = f.stack.join(', ');
         setFm(f); setBody(d.body); setSlugNow(d.slug); setLoading(false);
       })
       .catch((e) => { say(e.message, true); setLoading(false); });
-  }, [col, slug, baru, say]);
+  }, [col, slug, bahasa, baru, say]);
 
   const set = (k, v) => setFm((p) => ({ ...p, [k]: v }));
   const slugFinal = baru ? slugify(fm.title || '') : slugNow;
@@ -374,29 +403,32 @@ function Editor({ col, slug, seed, go, say, onChange }) {
     setSaving(true);
     try {
       const r = await api.save(col, baru ? slugFinal : slug, {
-        frontmatter: fm,
+        frontmatter: { ...fm, lang: bahasa },
         body,
         slugBaru: baru ? slugFinal : undefined,
-      });
+      }, bahasa);
       say(baru ? 'Berhasil dibuat' : 'Perubahan tersimpan');
       onChange();
-      go({ name: 'list', col });
+      go({ name: 'list', col, bahasa });
       return r;
     } catch (e) { say(e.message, true); }
     finally { setSaving(false); }
   };
 
-  const label = { blog: 'Blog', proyek: 'Proyek', berita: 'Berita' }[col];
+  const label = { blog: 'Blog', proyek: 'Proyek', berita: 'Berita', legal: 'Dokumen Legal' }[col];
 
   if (loading) return <div className="body"><Skeleton pola="editor" /></div>;
 
   return (
     <>
       <header className="top">
-        <button className="btn btn-g icon" onClick={() => go({ name: 'list', col })}><I.back /></button>
+        <button className="btn btn-g icon" onClick={() => go({ name: 'list', col, bahasa })}><I.back /></button>
         <div>
           <h1>{baru ? `${label} Baru` : 'Ubah Konten'}</h1>
-          <div className="sub">{slugFinal ? `/${col}/${slugFinal}` : 'Slug dibuat dari judul'}</div>
+          <div className="sub">
+            <span className="pill br">{bahasa.toUpperCase()}</span>{' '}
+            {slugFinal ? `/${bahasa}/${col}/${slugFinal}/` : 'Slug dibuat dari judul'}
+          </div>
         </div>
         <div className="spacer" />
         <button className="btn btn-p" onClick={simpan} disabled={saving}>
@@ -427,10 +459,12 @@ function Editor({ col, slug, seed, go, say, onChange }) {
           <div>
             <div className="card" style={{ marginBottom: 16 }}>
               <h3 className="sec">Publikasi</h3>
-              <div className="field">
-                <label>Tanggal</label>
-                <input type="date" value={fm.date || ''} onChange={(e) => set('date', e.target.value)} />
-              </div>
+              {!legal && (
+                <div className="field">
+                  <label>Tanggal</label>
+                  <input type="date" value={fm.date || ''} onChange={(e) => set('date', e.target.value)} />
+                </div>
+              )}
               <label className="chk" style={{ marginBottom: 9 }}>
                 <input type="checkbox" checked={!!fm.draft} onChange={(e) => set('draft', e.target.checked)} />
                 Simpan sebagai draf
@@ -512,6 +546,22 @@ function Editor({ col, slug, seed, go, say, onChange }) {
                     {['Pengumuman', 'Produk', 'Infrastruktur', 'Perusahaan'].map((k) => <option key={k}>{k}</option>)}
                   </select>
                 </div>
+              )}
+
+              {legal && (
+                <>
+                  <div className="field">
+                    <label>Diperbarui</label>
+                    <input value={fm.diperbarui || ''} onChange={(e) => set('diperbarui', e.target.value)}
+                      placeholder="17 September 2026" />
+                    <span className="hint">Teks bebas, tampil apa adanya di halaman legal.</span>
+                  </div>
+                  <div className="field">
+                    <label>Ringkasnya</label>
+                    <textarea rows={4} value={fm.ringkas || ''} onChange={(e) => set('ringkas', e.target.value)}
+                      placeholder="Versi bahasa sehari-hari dari dokumen ini — tampil di kotak atas halaman." />
+                  </div>
+                </>
               )}
             </div>
           </div>

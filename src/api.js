@@ -17,16 +17,25 @@ export const api = {
   },
   meta: () => fetch('/api/meta').then(j),
   stats: () => fetch('/api/stats').then(j),
-  list: (col) => fetch(`/api/${col}`).then(j),
-  get: (col, slug) => fetch(`/api/${col}/${slug}`).then(j),
-  save: (col, slug, payload) =>
-    fetch(`/api/${col}/${slug}`, {
+  // `bahasa` menentukan folder tujuan di repo situs:
+  //   id -> src/content/<col>/<slug>.md
+  //   en -> src/content/<col>/en/<slug>.md
+  list: (col, bahasa = 'id') => fetch(`/api/${col}?bahasa=${bahasa}`).then(j),
+  get: (col, slug, bahasa = 'id') => fetch(`/api/${col}/${slug}?bahasa=${bahasa}`).then(j),
+  save: (col, slug, payload, bahasa = 'id') =>
+    fetch(`/api/${col}/${slug}?bahasa=${bahasa}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).then(j),
-  remove: (col, slug) => fetch(`/api/${col}/${slug}`, { method: 'DELETE' }).then(j),
+  remove: (col, slug, bahasa = 'id') =>
+    fetch(`/api/${col}/${slug}?bahasa=${bahasa}`, { method: 'DELETE' }).then(j),
 };
+
+export const BAHASA = [
+  { kode: 'id', label: 'Indonesia' },
+  { kode: 'en', label: 'English' },
+];
 
 export const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80);

@@ -105,6 +105,7 @@ export async function tulisKonten({ col = 'blog', judul = '', arahan = '', panja
     blog: `Tulis artikel blog ${kata} kata. Mulai dengan paragraf pembuka yang langsung menarik (tanpa subjudul). Lalu 3-5 bagian ber-subjudul "## ". Tutup dengan bagian kesimpulan yang praktis.`,
     proyek: `Tulis studi kasus ${kata} kata dengan struktur PERSIS: "## Tantangan", "## Solusi", lalu "## Hasil". Bagian Hasil berisi daftar poin dengan angka dampak yang konkret dan masuk akal.`,
     berita: `Tulis berita perusahaan ${kata} kata. Paragraf pertama merangkum inti kabar (5W1H ringkas). Lanjutkan dengan detail, dampak bagi pelanggan, dan langkah yang perlu diambil pelanggan. Nada faktual, tidak berlebihan.`,
+    legal: `Tulis dokumen legal ${kata} kata dalam Bahasa Indonesia yang jelas dan mudah dipahami. Gunakan penomoran bagian "## 1. ...", "## 2. ...". Nada formal tapi tidak berbelit. Sertakan catatan bahwa dokumen ini perlu ditinjau penasihat hukum sebelum dipublikasikan.`,
   }[col];
 
   const { teks, pakai, model: dipakai } = await groqChat({
@@ -128,6 +129,7 @@ export async function buatMeta({ col = 'blog', judul = '', body = '', model }) {
     blog: `{"desc":"ringkasan 1-2 kalimat maksimal 160 karakter","kategori":"salah satu dari: Panduan, Teknis, Produksi, Automation, Umum","baca":angka menit baca,"judulAlt":["alternatif judul 1","alternatif judul 2"]}`,
     proyek: `{"desc":"ringkasan 1-2 kalimat maksimal 160 karakter","layanan":"salah satu dari: Cloud PC, Produksi Apps, Software Custom, Tools & Automation","stack":["teknologi1","teknologi2"],"status":"salah satu dari: Selesai, Berjalan, Maintenance"}`,
     berita: `{"desc":"ringkasan 1-2 kalimat maksimal 160 karakter","tag":"salah satu dari: Pengumuman, Produk, Infrastruktur, Perusahaan"}`,
+    legal: `{"desc":"ringkasan 1-2 kalimat maksimal 160 karakter tentang isi dokumen","ringkas":"penjelasan versi bahasa sehari-hari 2-3 kalimat, sapa pembaca dengan \"lu\"","diperbarui":"tanggal hari ini format \"17 September 2026\""}`,
   }[col];
 
   const { teks, pakai } = await groqChat({
@@ -169,7 +171,7 @@ export function pasangAI(r) {
 
   r.jalan('POST', '/api/ai/ide', async (req, res) => {
     const { col = 'blog', topik = '', jumlah = 5, model } = req.body || {};
-    const jenis = { blog: 'artikel blog', proyek: 'studi kasus proyek', berita: 'berita perusahaan' }[col] || 'artikel';
+    const jenis = { blog: 'artikel blog', proyek: 'studi kasus proyek', berita: 'berita perusahaan', legal: 'dokumen legal' }[col] || 'artikel';
     const { teks, pakai } = await groqChat({
       model,
       temperature: 0.9,
