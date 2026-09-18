@@ -176,7 +176,7 @@ function buatRouter() {
    * rute lain membawa sesi dan kunci API.
    */
   const ASAL_DIIZINKAN = new Set(
-    (process.env.CORS_ASAL || 'https://xyverse.my.id,http://localhost:4321,http://127.0.0.1:4321')
+    (process.env.CORS_ASAL || 'https://www.xyverse.my.id,https://xyverse.my.id,http://localhost:4321,http://127.0.0.1:4321')
       .split(',').map((x) => x.trim()).filter(Boolean),
   );
   const RUTE_PUBLIK = new Set(['/api/pesan']);

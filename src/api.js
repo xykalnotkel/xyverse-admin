@@ -59,7 +59,7 @@ export const api = {
 // langsung dilayani Astro di :4321; di produksi pakai domain Vercel.
 export const SITUS_URL = import.meta.env.DEV
   ? 'http://localhost:4321'
-  : import.meta.env.VITE_SITE_URL || 'https://xyverse.my.id';
+  : import.meta.env.VITE_SITE_URL || 'https://www.xyverse.my.id';
 
 export const urlSitus = (u) => (/^https?:\/\//.test(u) ? u : `${SITUS_URL}${u}`);
 

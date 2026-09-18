@@ -12,7 +12,7 @@ import SampulPilih from './SampulPilih.jsx';
 // Lokal: Astro dev server. Produksi: domain situs (bisa ditimpa VITE_SITE_URL).
 const SITE = import.meta.env.DEV
   ? 'http://localhost:4321'
-  : import.meta.env.VITE_SITE_URL || 'https://xyverse.my.id';
+  : import.meta.env.VITE_SITE_URL || 'https://www.xyverse.my.id';
 const SITE_LANG = import.meta.env.VITE_SITE_LANG || 'id';
 
 /* ============ PEMBANTU EDITOR ============ */
