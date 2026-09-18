@@ -233,3 +233,68 @@ menunjuk ke sana saat mode dev.
   bilah daftar; folder `en/` dibaca dan ditulis lewat `?bahasa=en`.
 - **Uji sebelum merge**: `npm test`. Terhadap kode sebelum perbaikan `lang`,
   16 pemeriksaannya gagal — jadi uji ini memang menangkap regresi itu.
+
+## xyteam & operasional (September 2026)
+
+Runtime: Node.js 24. Production menggunakan Cloudflare D1 privat melalui Worker
+`workers/database-gateway.js`. Vercel hanya menyimpan token gateway satu database,
+bukan token Cloudflare seluruh akun. Skema: `server/schema.sql`.
+
+Environment production:
+- `DB_GATEWAY_URL`, `DB_GATEWAY_TOKEN` (rahasia), `TEAM_DB_REQUIRED=1` (fail-closed produksi)
+- `SESSION_SECRET`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`
+- `VERCEL_API_TOKEN` (rahasia), `VERCEL_WEB_PROJECT`, `VERCEL_TEAM_ID`
+- Env GitHub dan Resend yang sudah ada tetap dipakai.
+
+Jangan menyalin database/token produksi ke preview. Tanpa database, mode lokal
+lama ADMIN_USER/ADMIN_PASS_HASH tetap tersedia untuk pengembangan; fitur tim dan
+inbox tidak tersedia. Setelah migrasi, produksi membaca password owner dari D1,
+bukan ADMIN_PASS_HASH. Pemulihan owner dilakukan lewat jalur administratif D1
+oleh pemilik akun Cloudflare, dengan bcrypt baru dan menaikkan kolom version.
+
+### Hak akses
+- **Owner:** kelola anggota, pengaturan situs, kunci API, dan log aktivitas.
+- **Admin operasional:** kelola konten/media/AI, baca status deploy, tangani pesan
+  dan permintaan paket. Tidak dapat membuat anggota atau mengubah akun owner.
+- Setiap akun punya sesi individual. Password sementara ditampilkan sekali dan
+  wajib diganti (minimal 12 karakter). Nonaktifkan/reset/password change menaikkan
+  version sehingga sesi lama ditolak pada permintaan berikutnya.
+- CAPTCHA tetap diverifikasi server. Rate limit login/pesan disimpan atomik di D1
+  (berbagi antarinstans); IP disimpan sebagai HMAC, bukan teks asli.
+- Middleware menghentikan eksekusi setelah respons ditutup. Pengujian memastikan
+  401/403 tidak meneruskan handler mutasi. Browser cross-origin mutations ditolak.
+
+### Alur harian
+1. **xyteam → Buat akun**: isi nama & username, salin password sementara dan
+   kirim pribadi. Tidak ada undangan email otomatis.
+2. **Pesan & pesanan**: status baru/diproses/menunggu/selesai/spam, penanggung jawab,
+   catatan internal. Versi record mencegah tim menimpa perubahan bersamaan.
+   Permintaan bukan invoice atau bukti pembayaran.
+3. **Pengaturan situs**: email publik, WA opsional, sosial, nama/harga tampilan tiga
+   paket. Simpan membuat commit; tunggu READY pada menu Deploy. Penerima email
+   internal (`SURAT_TUJUAN`) tidak ikut berubah saat email publik diganti.
+4. **Editor**: autosave lokal per akun/koleksi/bahasa/slug, pulihkan draf, konfirmasi
+   meninggalkan perubahan, riwayat 20 revisi artikel. Memuat revisi lama tidak
+   langsung menerbitkan; Simpan membuat commit baru. Draf lokal bukan backup
+   lintas perangkat dan tetap berada di browser setelah logout.
+5. **Deploy**: data aktual dari API Vercel, pembaruan tiap 30 detik. Commit berhasil
+   belum berarti tayang; kegagalan build mempertahankan versi situs sebelumnya.
+
+Pesan disimpan ke D1 sebelum notifikasi Resend. Jika email gagal, pesan tetap
+ada di inbox dan UI admin menunjukkan notifikasi gagal. API publik tidak
+menampilkan detail internal ini atau informasi akun layanan.
+
+### Pengujian tambahan
+```sh
+npm ci
+npm test                    # suite lama + SQLite/router/auth/RBAC/session/inbox
+npm run build
+npx playwright install --with-deps chromium
+# Sajikan dist/ di :4400 untuk tes UI (semua API di-mock, tanpa data produksi).
+npm run test:browser
+```
+
+DB tidak menyimpan password plaintext. Log aktivitas tidak menyimpan isi pesan
+atau kredensial. Tidak ada akun anggota sungguhan yang dibuat saat rilis fitur;
+owner menambahkannya sendiri. Backup/retensi data pelanggan dan scope kunci API
+lebih granular tetap perlu kebijakan operasional terpisah.

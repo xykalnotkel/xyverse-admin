@@ -1,3 +1,6 @@
+import crypto from 'node:crypto';
+import { pasangPlatform, izin } from './platform.js';
+import * as db from './database.js';
 /**
  * Inti API admin — router tunggal yang dipakai bersama oleh:
  *   - dev server lokal  (server/index.js)
@@ -221,6 +224,16 @@ function buatRouter() {
     next();
   });
 
+  // Reject browser cross-origin mutations except the deliberately public contact form.
+  r.pakai((req,res,next) => {
+    res.setHeader('cache-control','no-store');
+    if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.urlPath !== '/api/pesan' && req.headers.origin) {
+      let same=false;
+      try { same = new URL(req.headers.origin).host === req.headers.host; } catch {}
+      if (!same) return json(res,403,{error:'Asal permintaan tidak diizinkan.'});
+    }
+    next();
+  });
   pasangAuth(r);
 
   // wajib masuk untuk semua rute kecuali endpoint autentikasi terbuka
@@ -233,6 +246,9 @@ function buatRouter() {
     if (TERBUKA.has(req.urlPath)) return next();
     return wajibMasuk(req, res, next);
   });
+
+  r.pakai(izin);
+  pasangPlatform(r);
 
   /* ---- surat masuk dari form kontak situs ----
    *
@@ -460,6 +476,18 @@ function buatRouter() {
     json(res, 200, { ok: true, proyek: P.kunci, url: u.url, log: baris.join('\n') });
   });
 
+  r.jalan('GET','/api/history/:col/:slug',async(req,res)=>{
+    const path=pathKonten(req.params.col,req.params.slug,bahasaDari(req.query.bahasa));
+    json(res,200,{items:await gh.riwayat(gh.reposSitus(),path)});
+  });
+  r.jalan('GET','/api/history/:col/:slug/:sha',async(req,res)=>{
+    if(!/^[a-f0-9]{40}$/.test(req.params.sha))throw new Galat('Revisi tidak valid.',400);
+    const path=pathKonten(req.params.col,req.params.slug,bahasaDari(req.query.bahasa));
+    const raw=await gh.bacaIsiBercabang(gh.reposSitus(),path,req.params.sha);
+    const {data,content}=matter(raw);
+    json(res,200,{frontmatter:{...data,date:data.date instanceof Date?data.date.toISOString().slice(0,10):data.date},body:content.trim()});
+  });
+
   /* ---- CRUD konten (GitHub Contents API) ---- */
 
   r.jalan('GET', '/api/:col', async (req, res) => {
@@ -496,6 +524,7 @@ function buatRouter() {
       bahasa,
       frontmatter: { ...data, date: data.date instanceof Date ? data.date.toISOString().slice(0, 10) : data.date },
       body: content.trim(),
+      revision: crypto.createHash('sha1').update(`blob ${Buffer.byteLength(raw)}\0${raw}`).digest('hex'),
     });
   });
 
@@ -506,6 +535,7 @@ function buatRouter() {
     if (!cfg) throw new Galat('Koleksi tidak dikenal.', 400);
     const { frontmatter = {}, body = '', slugBaru } = req.body || {};
     if (!frontmatter.title) throw new Galat('Judul wajib diisi.', 400);
+    if (req.body?.revision != null && !/^[a-f0-9]{40}$/.test(req.body.revision)) throw new Galat('Revisi tidak valid.',400);
 
     const fm = { ...cfg.defaults, ...frontmatter };
     // Bahasa ditentukan oleh folder tujuan, BUKAN oleh isi form — ini yang
@@ -543,13 +573,14 @@ function buatRouter() {
     // Urutan sengaja: tulis berkas BARU dulu, baru hapus yang lama.
     // Kalau tulis gagal, tidak ada yang hilang; kalau hapus gagal,
     // konten tetap aman (hanya ada dua file — dilaporkan, bukan ditelan).
-    await gh.tulisBerkas(
+    const tersimpan = await gh.tulisBerkas(
       repo,
       pathKonten(col, target, bahasa),
       isi,
       slugBaru
-        ? `Buat ${lokasi} (via dashboard)`
-        : `Perbarui ${lokasi} (via dashboard)`,
+        ? `Buat ${lokasi} (via dashboard: ${req.admin?.pengguna || req.admin?.id || "API"})`
+        : `Perbarui ${lokasi} (via dashboard: ${req.admin?.pengguna || req.admin?.id || "API"})`,
+      req.body?.create === true ? null : req.body?.revision,
     );
 
     if (slugBaru && target !== slug) {
@@ -570,7 +601,8 @@ function buatRouter() {
       }
     }
     cache.delete(`${col}:${bahasa}`);
-    json(res, 200, { ok: true, slug: target, bahasa });
+    await db.audit(req.admin?.pengguna || req.admin?.id || 'API', 'content_saved', lokasi);
+    json(res, 200, { ok: true, slug: target, bahasa, ...tersimpan });
   });
 
   r.jalan('DELETE', '/api/:col/:slug', async (req, res) => {

@@ -12,6 +12,7 @@
  * Buat hash kata sandi:  npm run hash -- "katasandiku"
  */
 import crypto from 'node:crypto';
+import * as db from './database.js';
 import bcrypt from 'bcryptjs';
 import { json } from './http.js';
 import { verifikasiKunci, dibatasi, catatPakai } from './kunci.js';
@@ -81,13 +82,22 @@ function periksa(token) {
   }
 }
 
+async function sesiAktif(req) {
+  const s = periksa(baca(req)[NAMA_COOKIE]);
+  if (!s || !db.configured()) return s;
+  if (!s.uid) return null;
+  const u = await db.userById(s.uid);
+  if (!u?.enabled || u.version !== s.ver) return null;
+  return { ...s, u: u.username, peran: u.role, wajibGanti: !!u.must_change };
+}
+
 /* ---------- pembatasan laju ---------- */
 const percobaan = new Map(); // ip -> { n, sampai }
 const MAKS = 6;
 const JEDA = 1000 * 60 * 10; // 10 menit
 
 export function ipDari(req) {
-  return (req.headers['cf-connecting-ip'] ||
+  return (req.headers['x-vercel-forwarded-for'] ||
     String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
     req.socket.remoteAddress ||
     'tak-dikenal');
@@ -152,9 +162,9 @@ async function verifikasiTurnstile(token, ip) {
  * hanya boleh lewat cookie. Lihat `wajibSesi` di core.js.
  */
 export async function wajibMasuk(req, res, next) {
-  const sesi = periksa(baca(req)[NAMA_COOKIE]);
+  const sesi = await sesiAktif(req);
   if (sesi) {
-    req.admin = { jenis: 'sesi', pengguna: sesi.u, id: `sesi:${sesi.u}` };
+    req.admin = { jenis: 'sesi', pengguna: sesi.u, id: sesi.uid || `sesi:${sesi.u}`, peran: sesi.peran || 'owner', wajibGanti: !!sesi.wajibGanti };
     return next();
   }
 
@@ -183,18 +193,19 @@ export async function wajibMasuk(req, res, next) {
 // Catatan: env dibaca di dalam handler (lazy), karena .env lokal dimuat
 // setelah modul diimpor — di Vercel env memang sudah ada sejak awal.
 export function pasangAuth(r) {
-  r.jalan('GET', '/api/auth/konfig', (_req, res) => {
+  r.jalan('GET', '/api/auth/konfig', async (_req, res) => {
     json(res, 200, {
       turnstile: turnstileAktif(),
       siteKey: process.env.TURNSTILE_SITE_KEY || '',
-      siapPakai: Boolean(process.env.ADMIN_PASS_HASH),
+      siapPakai: db.configured() ? Boolean((await db.userById('owner'))?.enabled) : Boolean(process.env.ADMIN_PASS_HASH),
+      xyteam: db.configured(),
     });
   });
 
-  r.jalan('GET', '/api/auth/saya', (req, res) => {
-    const sesi = periksa(baca(req)[NAMA_COOKIE]);
+  r.jalan('GET', '/api/auth/saya', async (req, res) => {
+    const sesi = await sesiAktif(req);
     if (!sesi) return json(res, 401, { masuk: false });
-    json(res, 200, { masuk: true, pengguna: sesi.u, kedaluwarsa: sesi.exp });
+    json(res, 200, { masuk: true, pengguna: sesi.u, peran: sesi.peran || 'owner', wajibGanti: !!sesi.wajibGanti, id: sesi.uid || 'owner', kedaluwarsa: sesi.exp });
   });
 
   r.jalan('POST', '/api/auth/masuk', async (req, res) => {
@@ -202,6 +213,7 @@ export function pasangAuth(r) {
     const HASH = process.env.ADMIN_PASS_HASH || '';
     const ip = ipDari(req);
 
+    if (await db.rateLimit('login', ip, 15, 10 * 60 * 1000)) return json(res, 429, { error: 'Terlalu banyak percobaan. Coba lagi dalam 10 menit.' });
     const sisa = terkunci(ip);
     if (sisa) {
       return json(res, 429, {
@@ -209,7 +221,7 @@ export function pasangAuth(r) {
       });
     }
 
-    if (!HASH) {
+    if (!HASH && !db.configured()) {
       return json(res, 500, {
         error: 'ADMIN_PASS_HASH belum diatur. Jalankan: npm run hash -- "katasandi"',
       });
@@ -223,11 +235,10 @@ export function pasangAuth(r) {
       return json(res, 400, { error: ts.pesan });
     }
 
-    const namaCocok = crypto.timingSafeEqual(
-      Buffer.from(String(pengguna).padEnd(64).slice(0, 64)),
-      Buffer.from(String(PENGGUNA).padEnd(64).slice(0, 64)),
-    );
-    const sandiCocok = await bcrypt.compare(String(sandi), HASH);
+    const akun = db.configured() ? await db.userByName(String(pengguna).trim().toLowerCase()) : null;
+    const namaCocok = db.configured() ? !!akun?.enabled : String(pengguna) === PENGGUNA;
+    const dummyHash = '$2a$12$KsAOgAqRQx51XJnWqsFtDu/gvj0iEddMzGBTSHDABapUAolZoZm6C';
+    const sandiCocok = await bcrypt.compare(String(sandi), db.configured() ? (akun?.pass_hash || dummyHash) : HASH);
 
     if (!namaCocok || !sandiCocok) {
       catatGagal(ip);
@@ -241,8 +252,26 @@ export function pasangAuth(r) {
 
     percobaan.delete(ip);
     const exp = Date.now() + UMUR_SESI;
-    pasang(res, tandatangani({ u: PENGGUNA, exp }), UMUR_SESI);
-    json(res, 200, { ok: true, pengguna: PENGGUNA, kedaluwarsa: exp });
+    const muatan = { u: akun?.username || PENGGUNA, exp, ...(akun ? { uid: akun.id, ver: akun.version } : {}) };
+    await db.audit(muatan.u, 'login');
+    pasang(res, tandatangani(muatan), UMUR_SESI);
+    json(res, 200, { ok: true, pengguna: muatan.u, id: akun?.id || 'owner', peran: akun?.role || 'owner', wajibGanti: !!akun?.must_change, kedaluwarsa: exp });
+  });
+
+  r.jalan('POST', '/api/auth/password', async (req, res) => {
+    if (req.admin?.jenis !== 'sesi' || !db.configured()) return json(res, 403, { error: 'Perlu sesi akun individual.' });
+    const { lama = '', baru = '' } = req.body || {};
+    if (typeof baru !== 'string' || baru.length < 12 || Buffer.byteLength(baru) > 72) return json(res, 400, { error: 'Password baru minimal 12 karakter, maksimal 72 byte.' });
+    if (await db.rateLimit('password', ipDari(req), 6, 600000)) return json(res, 429, { error: 'Terlalu banyak percobaan.' });
+    const u = await db.userById(req.admin.id);
+    if (!u || !await bcrypt.compare(String(lama), u.pass_hash)) return json(res, 400, { error: 'Password saat ini salah.' });
+    if (await bcrypt.compare(baru,u.pass_hash)) return json(res,400,{error:'Gunakan password baru yang berbeda.'});
+    const hash = await bcrypt.hash(baru, 12);
+    const rows = await db.query('UPDATE users SET pass_hash=?,version=version+1,must_change=0 WHERE id=? AND version=? RETURNING id', [hash, u.id, u.version]);
+    if (!rows.length) return json(res, 409, { error: 'Akun berubah. Silakan login kembali.' });
+    await db.audit(u.username, 'password_changed', u.id);
+    hapus(res);
+    json(res, 200, { ok: true, loginUlang: true });
   });
 
   r.jalan('POST', '/api/auth/keluar', (_req, res) => {

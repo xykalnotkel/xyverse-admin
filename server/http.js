@@ -129,7 +129,7 @@ export class Router {
       }
       let i = 0;
       try {
-        while (i < rantai.length) {
+        while (i < rantai.length && !res.writableEnded) {
           const f = rantai[i++];
           await new Promise((selesai, gagal) => {
             let sudah = false;
@@ -147,6 +147,7 @@ export class Router {
               return tutup(e);
             }
             if (hasil && typeof hasil.then === 'function') hasil.then(() => tutup(), (e) => tutup(e));
+            else if (res.writableEnded) tutup();
           });
         }
       } catch (e) {

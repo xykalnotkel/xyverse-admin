@@ -1,3 +1,4 @@
+import { Team, Inbox, Settings, Account, Audit, request } from './Workspace.jsx';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, slugify, fmtTgl, BAHASA } from './api.js';
 import { I } from './Icons.jsx';
@@ -104,7 +105,7 @@ export default function App() {
   useEffect(() => {
     fetch('/api/auth/saya')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setSesi(d?.masuk ? d.pengguna : null))
+      .then((d) => setSesi(d?.masuk ? d : null))
       .catch(() => setSesi(null));
   }, []);
 
@@ -123,16 +124,19 @@ export default function App() {
       </ToastHost>
     );
   }
+  if (sesi.wajibGanti) return <ToastHost><Account mandatory onLogout={async()=>{await fetch('/api/auth/keluar',{method:'POST'});setSesi(null);}}/></ToastHost>;
   return (
     <ToastHost>
-      <Dashboard pengguna={sesi} onKeluar={() => setSesi(null)} />
+      <Dashboard akun={sesi} pengguna={sesi.pengguna} onKeluar={() => setSesi(null)} />
     </ToastHost>
   );
 }
 
 /* ============ DASHBOARD ============ */
-function Dashboard({ pengguna, onKeluar }) {
-  const [view, setView] = useState({ name: 'dash' });
+function Dashboard({ akun, pengguna, onKeluar }) {
+  const [view, rawSetView] = useState({ name: 'dash' });
+  const setView = (v) => { if(window.__xyEditorDirty && !confirm('Perubahan belum dikirim ke GitHub. Draf lokal disimpan di browser ini. Tetap pindah?'))return;rawSetView(v); };
+  const owner = akun.peran === 'owner';
   const [stats, setStats] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('xy-admin-theme') || 'dark');
   const [keluarBuka, setKeluarBuka] = useState(false);
@@ -190,9 +194,8 @@ function Dashboard({ pengguna, onKeluar }) {
           <I.git /> Deploy
         </button>
 
-        <button className={`nav ${view.name === 'kunci' ? 'on' : ''}`} onClick={() => setView({ name: 'kunci' })}>
-          <I.lock /> Kunci API
-        </button>
+        <div className="navlbl">Operasional</div>
+        {[['inbox','Pesan & pesanan'],['account','Akun & keamanan'],...(owner?[['team','xyteam'],['settings','Pengaturan situs'],['audit','Aktivitas tim'],['kunci','Kunci API']]:[])].map(([name,label])=><button key={name} className={`nav ${view.name===name?'on':''}`} onClick={()=>setView({name})}><I.shield/>{label}</button>)}
 
         <div className="navlbl">Konten</div>
         {cols.map(({ key, label, Ic }) => (
@@ -207,7 +210,7 @@ function Dashboard({ pengguna, onKeluar }) {
         ))}
 
         <div className="sfoot">
-          <div className="sme"><I.user /> <span>{pengguna}</span></div>
+          <div className="sme"><I.user /> <span>{pengguna}<small style={{display:"block",opacity:.65}}>{owner?"Owner":"Admin operasional"}</small></span></div>
           <a className="slink" href={SITE} target="_blank" rel="noreferrer"><I.link /> Buka website</a>
           <button className="slink" style={{ border: 0, background: 'none', cursor: 'pointer', width: '100%' }}
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
@@ -223,12 +226,17 @@ function Dashboard({ pengguna, onKeluar }) {
       <main className="main">
         {view.name === 'dash' && <Dash stats={stats} go={setView} />}
         {view.name === 'deploy' && <Deploy />}
-        {view.name === 'kunci' && <KunciApi say={say} />}
+        {view.name === 'kunci' && owner && <KunciApi say={say} />}
+        {view.name === 'team' && owner && <Team/>}
+        {view.name === 'settings' && owner && <Settings/>}
+        {view.name === 'audit' && owner && <Audit/>}
+        {view.name === 'inbox' && <Inbox/>}
+        {view.name === 'account' && <Account onLogout={async()=>{await fetch('/api/auth/keluar',{method:'POST'});onKeluar();}}/>}
         {view.name === 'ai' && <StudioAI go={setView} say={say} />}
         {view.name === 'list' && <List col={view.col} go={setView} say={say} onChange={refresh} />}
         {view.name === 'edit' && (
           <Editor key={`${view.col}-${view.bahasa || 'id'}-${view.slug || 'baru'}-${view.seed || ''}`}
-            col={view.col} slug={view.slug} seed={view.seed} bahasa={view.bahasa || 'id'}
+            pengguna={pengguna} col={view.col} slug={view.slug} seed={view.seed} bahasa={view.bahasa || 'id'}
             go={setView} say={say} onChange={refresh} />
         )}
       </main>
@@ -459,7 +467,7 @@ const tglPanjang = (bahasa = 'id') =>
     day: 'numeric', month: 'long', year: 'numeric',
   });
 
-function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
+function Editor({ pengguna, col, slug, seed, bahasa = 'id', go, say, onChange }) {
   const baru = !slug;
   const legal = col === 'legal';
   const [fm, setFm] = useState(() => ({
@@ -477,6 +485,26 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
   const [pratinjau, setPratinjau] = useState(false);
   const [terj, setTerj] = useState(null);
   const areaIsi = useRef(null);
+  const [revision,setRevision] = useState(null);
+  const [recovery,setRecovery] = useState(null);
+  const [draftNote,setDraftNote] = useState('');
+  const [history,setHistory] = useState(null);
+  const draftKey = `xy-draft:${pengguna}:${col}:${bahasa}:${slug || 'baru'}`;
+  const baseline = useRef(baru ? JSON.stringify({fm,body:''}) : null);
+  const dirty = !loading && baseline.current !== null && JSON.stringify({fm,body}) !== baseline.current;
+  useEffect(()=>{
+    try { const d=JSON.parse(localStorage.getItem(draftKey)||'null'); if(d?.fm && typeof d.body==='string')setRecovery(d); } catch {}
+  },[draftKey]);
+  useEffect(()=>{
+    window.__xyEditorDirty=dirty;
+    if(!dirty)return;
+    const persist=()=>{try{localStorage.setItem(draftKey,JSON.stringify({fm,body,revision,at:new Date().toISOString()}));setDraftNote('Draf lokal tersimpan — belum dikirim ke GitHub');}catch{setDraftNote('Penyimpanan lokal gagal/penuh. Salin tulisan sebelum keluar.');}};
+    const timer=setTimeout(persist,600);
+    const unload=e=>{persist();e.preventDefault();e.returnValue='';};
+    window.addEventListener('beforeunload',unload);
+    return()=>{clearTimeout(timer);window.removeEventListener('beforeunload',unload);if(window.__xyEditorDirty){try{localStorage.setItem(draftKey,JSON.stringify({fm,body,revision,at:new Date().toISOString()}));}catch{}}};
+  },[fm,body,revision,dirty,draftKey]);
+  useEffect(()=>()=>{window.__xyEditorDirty=false;},[]);
 
   useEffect(() => {
     if (baru) return;
@@ -484,7 +512,7 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
       .then((d) => {
         const f = { ...KOSONG[col], ...d.frontmatter };
         if (Array.isArray(f.stack)) f.stack = f.stack.join(', ');
-        setFm(f); setBody(d.body); setSlugNow(d.slug); setLoading(false);
+        baseline.current=JSON.stringify({fm:f,body:d.body});setRevision(d.revision);setFm(f); setBody(d.body); setSlugNow(d.slug); setLoading(false);
       })
       .catch((e) => { say(e.message, true); setLoading(false); });
   }, [col, slug, bahasa, baru, say]);
@@ -505,10 +533,13 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
     try {
       const r = await api.save(col, baru ? slugFinal : slug, {
         frontmatter: { ...fm, lang: bahasa },
+        revision: baru ? undefined : revision,
+        create: baru,
         body,
         slugBaru: baru ? slugFinal : undefined,
       }, bahasa);
-      say(baru ? 'Berhasil dibuat' : 'Perubahan tersimpan');
+      window.__xyEditorDirty=false;baseline.current=JSON.stringify({fm,body});try{localStorage.removeItem(draftKey);}catch{}
+      say(`Tersimpan ke GitHub (${r.commitSha?.slice(0,7)||'OK'}). Cek menu Deploy sebelum menganggap sudah tayang.`);
       onChange();
       go({ name: 'list', col, bahasa });
       return r;
@@ -615,6 +646,9 @@ function Editor({ col, slug, seed, bahasa = 'id', go, say, onChange }) {
                 placeholder={'## Subjudul\n\nTulis isi di sini. Mendukung **tebal**, *miring*, daftar, tabel, dan kode.'} />
               )}
               <span className="hint">{kata} kata · Ctrl+S simpan · Ctrl+\ pratinjau</span>
+              <p className="hint" role="status">{draftNote}</p>
+              {!baru&&<div className="workcard"><Btn onClick={async()=>{try{const d=await request(`/api/history/${col}/${slug}?bahasa=${bahasa}`);setHistory(d.items);}catch(e){say(e.message,true);}}}>Riwayat versi</Btn>{history?.map(h=><div className="deploy-row" key={h.sha}><code>{h.sha.slice(0,7)}</code><span>{h.date} · {h.message}</span><Btn onClick={async()=>{if(!confirm('Muat versi ini ke editor? Belum akan diterbitkan; periksa lalu Simpan untuk membuat revisi baru.'))return;try{const d=await request(`/api/history/${col}/${slug}/${h.sha}?bahasa=${bahasa}`);setFm({...KOSONG[col],...d.frontmatter,stack:Array.isArray(d.frontmatter.stack)?d.frontmatter.stack.join(', '):d.frontmatter.stack});setBody(d.body);say('Versi lama dimuat sebagai draf. Periksa sebelum menyimpan.');}catch(e){say(e.message,true);}}}>Muat ke editor</Btn></div>)}</div>}
+              {recovery&&<Alert tipe="warn" judul="Draf lokal ditemukan"><p>Tersimpan {new Date(recovery.at).toLocaleString()}. Pemulihan tidak mengirim perubahan ke server.</p><Btn onClick={()=>{setFm(recovery.fm);setBody(recovery.body);setRevision(recovery.revision);setRecovery(null);}}>Pulihkan draf</Btn><Btn onClick={()=>{localStorage.removeItem(draftKey);setRecovery(null);}}>Abaikan draf</Btn></Alert>}
             </div>
           </div>
 

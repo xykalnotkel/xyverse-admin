@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import * as db from './database.js';
 /**
  * Surat masuk dari form kontak situs — dikirim lewat Resend.
  *
@@ -28,7 +30,7 @@ import { Galat } from './http.js';
 const CFG = {
   kunci: () => process.env.RESEND_API_KEY || '',
   dari: () => process.env.SURAT_DARI || 'onboarding@resend.dev',
-  tujuan: () => process.env.SURAT_TUJUAN || 'halo@xyverse.my.id',
+  tujuan: () => process.env.SURAT_TUJUAN || 'xycdigital@gmail.com',
   namaDari: () => process.env.SURAT_NAMA_DARI || 'Situs Xyverse',
 };
 
@@ -57,7 +59,7 @@ const bersih = (v, maks) =>
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /** HTML surat: tabel sederhana, aman di klien email yang membuang CSS. */
-function htmlSurat({ nama, email, perusahaan, topik, budget, pesan }) {
+function htmlSurat({ nama, email, perusahaan, topik, budget, paket, pesan }) {
   const esc = (t) =>
     String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const baris = (label, nilai) =>
@@ -74,6 +76,7 @@ function htmlSurat({ nama, email, perusahaan, topik, budget, pesan }) {
     baris('Perusahaan', perusahaan),
     baris('Kebutuhan', topik),
     baris('Anggaran', budget),
+    baris('Paket', paket),
     `</table>`,
     `<div style="white-space:pre-wrap;border-left:3px solid #7c3aed;padding:4px 0 4px 14px;margin-bottom:14px">${esc(pesan)}</div>`,
     `<p style="margin:0;color:#6b7280;font-size:13px">Dikirim lewat xyverse.my.id</p>`,
@@ -90,7 +93,7 @@ export async function kirimPesan(isi, ip = '') {
   // Bot mengisi kolom tersembunyi. Terima lalu buang tanpa suara.
   if (String(honeypot).trim()) return { ok: true, dibuang: true };
 
-  if (kenaBatas(String(ip || 'tanpa-ip'))) {
+  if (db.configured() ? await db.rateLimit('contact',ip,5,JENDELA) : kenaBatas(String(ip || 'tanpa-ip'))) {
     throw new Galat('Terlalu banyak pesan dari alamat ini. Coba lagi sebentar.', 429);
   }
 
@@ -99,12 +102,19 @@ export async function kirimPesan(isi, ip = '') {
   const perusahaan = bersih(isi?.perusahaan, MAKS_PENDEK);
   const topik = bersih(isi?.topik, MAKS_PENDEK);
   const budget = bersih(isi?.budget, MAKS_PENDEK);
+  const paket = bersih(isi?.paket, 120);
   const pesan = bersih(isi?.pesan, MAKS_PESAN);
 
   if (nama.length < 2) throw new Galat('Nama wajib diisi.', 400);
   if (!EMAIL.test(email)) throw new Galat('Alamat email tidak sah.', 400);
   if (pesan.length < 10) throw new Galat('Pesan terlalu pendek.', 400);
 
+  let ticket = null;
+  if (db.configured()) {
+    ticket = crypto.randomUUID();
+    await db.query('INSERT INTO inbox(id,name,email,company,topic,budget,package,message) VALUES (?,?,?,?,?,?,?,?)', [ticket,nama,email,perusahaan,topik,budget,bersih(isi?.paket,120),pesan]);
+  }
+  try {
   const kunci = CFG.kunci();
   if (!kunci) {
     throw new Galat('Pengiriman surat belum dikonfigurasi di server.', 503);
@@ -122,10 +132,11 @@ export async function kirimPesan(isi, ip = '') {
       // Balas ke pengirim, bukan From — lihat catatan di kepala berkas.
       reply_to: email,
       subject: `[Situs] ${topik || 'Pesan baru'} — ${nama}`,
-      html: htmlSurat({ nama, email, perusahaan, topik, budget, pesan }),
+      html: htmlSurat({ nama, email, perusahaan, topik, budget, paket, pesan }),
       text: [
         `Nama: ${nama}`,
         `Email: ${email}`,
+        paket ? `Paket: ${paket}` : '',
         perusahaan ? `Perusahaan: ${perusahaan}` : '',
         topik ? `Kebutuhan: ${topik}` : '',
         budget ? `Anggaran: ${budget}` : '',
@@ -138,10 +149,17 @@ export async function kirimPesan(isi, ip = '') {
   if (!jawaban.ok) {
     const teks = await jawaban.text().catch(() => '');
     // Jangan bocorkan isi jawaban Resend ke pemanggil — bisa memuat detail akun.
-    console.error('[surat] Resend menolak:', jawaban.status, teks.slice(0, 300));
-    throw new Galat('Pesan belum bisa dikirim. Coba lagi atau email langsung ke halo@xyverse.my.id.', 502);
+    console.error('[surat] Resend menolak:', jawaban.status);
+    throw new Galat('Pesan belum bisa dikirim. Coba lagi atau email langsung ke xycdigital@gmail.com.', 502);
   }
 
   const hasil = await jawaban.json().catch(() => ({}));
-  return { ok: true, id: hasil.id || null };
+  if (ticket) await db.query("UPDATE inbox SET notification='sent' WHERE id=?",[ticket]);
+  return { ok: true, id: ticket || hasil.id || null };
+  } catch (e) {
+    if (!ticket) throw e;
+    // The customer request is already durable; do not encourage duplicate submission.
+    await db.query("UPDATE inbox SET notification='failed' WHERE id=?",[ticket]).catch(()=>{});
+    return { ok: true, id: ticket };
+  }
 }

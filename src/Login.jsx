@@ -94,7 +94,7 @@ export default function Login({ onMasuk }) {
         }
         return;
       }
-      onMasuk(j.pengguna);
+      onMasuk(j);
     } catch {
       setGalat('Tidak dapat menghubungi server. Pastikan API berjalan.');
     } finally {

@@ -137,8 +137,8 @@ async function ambilSHA(repo, pathFile, cabang = CFG.cabang()) {
 }
 
 /** Tulis (buat/perbarui) berkas — menghasilkan satu commit di GitHub. */
-export async function tulisBerkas(repo, pathFile, isi, pesan) {
-  return tulisBerkasBercabang(repo, pathFile, isi, pesan, CFG.cabang());
+export async function tulisBerkas(repo, pathFile, isi, pesan, expectedSha) {
+  return tulisBerkasBercabang(repo, pathFile, isi, pesan, CFG.cabang(), expectedSha);
 }
 
 /**
@@ -146,14 +146,15 @@ export async function tulisBerkas(repo, pathFile, isi, pesan) {
  * `isi` boleh string (teks) atau Buffer (biner, mis. gambar) — keduanya
  * dikirim sebagai base64, itu yang diminta Contents API.
  */
-export async function tulisBerkasBercabang(repo, pathFile, isi, pesan, cabang) {
+export async function tulisBerkasBercabang(repo, pathFile, isi, pesan, cabang, expectedSha) {
   if (!CFG.token())
     throw new Galat(
       'GH_TOKEN belum diatur di lingkungan deployment. Tanpa token, konten tidak bisa disimpan.',
       400,
     );
   const p = segmen(pathFile);
-  const ada = await ambilSHA(repo, pathFile, cabang).catch(() => null);
+  let ada = expectedSha || await ambilSHA(repo, pathFile, cabang).catch((e) => { if(e.status===404) return null; throw e; });
+  if (expectedSha === null && ada) throw new Galat('Slug sudah digunakan. Ganti judul atau buka artikel yang sudah ada.',409);
   const muatan = {
     message: pesan,
     content: Buffer.isBuffer(isi) ? isi.toString('base64') : Buffer.from(isi, 'utf8').toString('base64'),
@@ -226,4 +227,10 @@ export function waktuRelatif(iso) {
   const h = Math.floor(j / 24);
   if (h < 30) return `${h} hari lalu`;
   return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** File-scoped history; no secrets/private operational data are stored in this repository. */
+export async function riwayat(repo, pathFile) {
+  const data = await panggil(`/repos/${repo}/commits?path=${encodeURIComponent(pathFile)}&sha=${encodeURIComponent(CFG.cabang())}&per_page=20`);
+  return (data || []).map(x => ({ sha:x.sha, message:x.commit?.message, date:x.commit?.author?.date }));
 }

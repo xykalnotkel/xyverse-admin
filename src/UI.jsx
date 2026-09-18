@@ -54,6 +54,7 @@ export function ToastHost({ children }) {
 export function Btn({ children, muat = false, jenis = 'g', k = '', ...p }) {
   return (
     <button
+      type="button"
       className={`btn btn-${jenis} ${muat ? 'is-load' : ''} ${k}`}
       disabled={muat || p.disabled}
       {...p}

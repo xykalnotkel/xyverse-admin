@@ -1,3 +1,4 @@
+import { DeployLive } from './Workspace.jsx';
 import React, { useEffect, useState } from 'react';
 import { I } from './Icons.jsx';
 import { Alert, Btn, Skeleton, usePesan } from './UI.jsx';
@@ -77,7 +78,8 @@ export default function Deploy() {
         <Btn onClick={() => segarkan()} k="icon" aria-label="Segarkan status"><I.refresh /></Btn>
       </header>
 
-      <div className="body">
+      <div className="body workspace">
+        <DeployLive/>
         {galat && <Alert tipe="err" k="mb">{galat}</Alert>}
 
         {daftar && (
