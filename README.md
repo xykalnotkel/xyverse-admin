@@ -298,3 +298,8 @@ DB tidak menyimpan password plaintext. Log aktivitas tidak menyimpan isi pesan
 atau kredensial. Tidak ada akun anggota sungguhan yang dibuat saat rilis fitur;
 owner menambahkannya sendiri. Backup/retensi data pelanggan dan scope kunci API
 lebih granular tetap perlu kebijakan operasional terpisah.
+
+Dashboard writes also explicitly request a Vercel deployment for the saved commit
+(using VERCEL_WEB_REPO_ID). If the Git webhook has already created it, the request
+is deduplicated. Deployment-request failures are returned as warnings, not as
+failed saves. Menu Deploy can request publication of the latest commit again.

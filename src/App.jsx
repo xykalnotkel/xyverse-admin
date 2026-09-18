@@ -539,7 +539,7 @@ function Editor({ pengguna, col, slug, seed, bahasa = 'id', go, say, onChange })
         slugBaru: baru ? slugFinal : undefined,
       }, bahasa);
       window.__xyEditorDirty=false;baseline.current=JSON.stringify({fm,body});try{localStorage.removeItem(draftKey);}catch{}
-      say(`Tersimpan ke GitHub (${r.commitSha?.slice(0,7)||'OK'}). Cek menu Deploy sebelum menganggap sudah tayang.`);
+      say(r.deployWarning || `Tersimpan ke GitHub (${r.commitSha?.slice(0,7)||'OK'}). Cek menu Deploy sebelum menganggap sudah tayang.`,!!r.deployWarning);
       onChange();
       go({ name: 'list', col, bahasa });
       return r;

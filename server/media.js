@@ -100,8 +100,6 @@ export async function simpan({ nama = '', dataBase64 = '', ekstensiPaksa = null 
     jalur,
     buf,
     `Tambah gambar ${namaFile} (via dashboard)`,
-    gh.CFG.cabang(),
-    { biner: true },
   );
 
   // Folder public/media/ dipetakan ke /media/ di situs.

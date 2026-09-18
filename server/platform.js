@@ -1,3 +1,4 @@
+import { deployCommit } from './deploy.js';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import * as db from './database.js';
@@ -79,6 +80,13 @@ export function pasangPlatform(r) {
     let settings;try{settings=validSettings(req.body?.settings||{});}catch(e){if(e.status)throw e;throw new Galat('Pengaturan tidak valid.',400);}
     const result=await gh.tulisBerkas(gh.reposSitus(),settingsPath,JSON.stringify(settings,null,2)+'\n',`Pengaturan situs oleh ${req.admin.pengguna}`,req.body.revision);
     await db.audit(req.admin.pengguna,'settings_saved',result.commitSha);json(res,200,{ok:true,...result});
+  });
+  r.jalan('POST','/api/deploy',async(req,res)=>{
+    const latest=await gh.commitTerakhir(gh.reposSitus());
+    const result=await deployCommit(latest?.sha);
+    if(!result.deploymentId)throw new Galat(result.deployWarning||'Konfigurasi deploy belum lengkap.',503);
+    await db.audit(req.admin.pengguna,'deploy_requested',latest.sha);
+    json(res,200,{ok:true,...result});
   });
   r.jalan('GET','/api/deploy',async(_req,res)=>{
     if(!process.env.VERCEL_API_TOKEN || !process.env.VERCEL_WEB_PROJECT) throw new Galat('Integrasi status Vercel belum disetel.',503);

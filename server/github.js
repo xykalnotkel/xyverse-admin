@@ -1,3 +1,4 @@
+import { deployCommit } from './deploy.js';
 /**
  * Klien GitHub API — pengganti operasi berkas lokal & git CLI.
  *
@@ -165,7 +166,7 @@ export async function tulisBerkasBercabang(repo, pathFile, isi, pesan, cabang, e
     method: 'PUT',
     body: JSON.stringify(muatan),
   });
-  return { commitSha: data?.commit?.sha || null, fileSha: data?.content?.sha || null };
+  return { commitSha: data?.commit?.sha || null, fileSha: data?.content?.sha || null, ...(repo === reposSitus() ? await deployCommit(data?.commit?.sha) : {}) };
 }
 
 /** Hapus berkas — menghasilkan satu commit di GitHub. */
@@ -178,7 +179,7 @@ export async function hapusBerkas(repo, pathFile, pesan) {
     method: 'DELETE',
     body: JSON.stringify({ message: pesan, sha, branch: CFG.cabang() }),
   });
-  return { commitSha: data?.commit?.sha || null };
+  return { commitSha: data?.commit?.sha || null, ...(repo === reposSitus() ? await deployCommit(data?.commit?.sha) : {}) };
 }
 
 /* ---------- info repositori (untuk panel deploy) ---------- */
