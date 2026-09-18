@@ -53,7 +53,7 @@ scripts/uji-api.mjs  Uji asap router inti (GitHub API dipalsukan) — `npm test`
 
 ## Kunci API — akses untuk agen AI
 
-Seluruh `/api/*` bisa diakses tanpa login peramban, cukup header:
+Endpoint konten dan operasional bisa diakses tanpa login peramban, cukup header:
 
 ```bash
 curl -H "Authorization: Bearer xya_..." https://admin.xyverse.my.id/api/stats
@@ -71,8 +71,8 @@ sebagai "database" karena backend ini serverless: tidak ada disk yang
 bertahan antar-request, dan `GH_TOKEN` sudah tersedia. Berkasnya aman
 di-commit karena tidak memuat teks polos.
 
-**Membuat kunci.** Dari panel → **Kunci API** → isi label dan masa berlaku.
-Atau lewat API, dari sesi peramban:
+**Membuat kunci (owner).** Dari panel → **Kunci API** → isi label dan masa berlaku.
+Atau lewat API, dari sesi owner peramban:
 
 ```bash
 curl -b cookie.txt -X POST https://admin.xyverse.my.id/api/kunci \
@@ -87,19 +87,33 @@ curl -b cookie.txt -X POST https://admin.xyverse.my.id/api/kunci \
 | `DELETE /api/kunci/:id` | cabut kunci |
 
 **Kunci bootstrap.** `ADMIN_API_KEY` di lingkungan Vercel juga diterima
-sebagai kunci API, tanpa perlu dibuat lewat panel. Berguna untuk bootstrap
-atau untuk lingkungan yang tidak mau menulis ke repo. Kunci ini tidak bisa
+sebagai kunci operasional, tanpa perlu dibuat lewat panel. Haknya sama
+dengan kunci tersimpan—bukan jalan pintas untuk membuat kunci lain. Kunci ini tidak bisa
 dicabut lewat API — matikan lewat dashboard Vercel.
 
-**Yang sengaja dibatasi.** Kunci API **tidak bisa** membuat atau mencabut
-kunci API (`403 BUTUH_SESI`). Kalau bisa, satu kunci yang bocor bisa menanam
-kunci lain yang tidak pernah muncul di daftar. Pengelolaan kunci hanya lewat
-sesi peramban.
+**Cakupan seluruh kunci: `konten-operasional`.** Berlaku juga untuk kunci lama
+(yang tersimpan dengan label cakupan `penuh`) dan `ADMIN_API_KEY` lingkungan.
+Nilai cakupan lama tidak pernah memberi hak owner.
+
+| Diizinkan | Memerlukan sesi owner, tidak menerima kunci API |
+|---|---|
+| CRUD konten dua bahasa, media, Studio AI, revisi | `/api/team` (anggota/reset password) |
+| `GET /api/inbox`, `PATCH /api/inbox/:id` | `/api/settings` (pengaturan situs) |
+| `GET /api/deploy`, `POST /api/deploy` | `/api/audit` (log owner) |
+| Stats/config konten | `/api/kunci` (daftar/buat/ubah/cabut kunci) |
+
+`POST /api/auth/password` hanya menerima sesi akun itu sendiri, bukan kunci API.
+Penolakan diterapkan server-side sebelum handler berjalan, bukan sekadar menu UI.
+Operasi inbox/deploy mencatat pelaku `api:<id> (<label>)` di audit. PATCH inbox
+memerlukan `version` terbaru; ambil kembali daftar setelah konflik `409`.
+POST deploy selalu meminta commit terbaru main, bukan SHA arbitrer dari pemanggil.
+Kunci memberi akses data pelanggan privat: simpan sebagai secret di server, jangan
+di HTML/JavaScript publik. Pembatasan laju/expiry/pencabutan tetap berlaku.
 
 **Batas laju.** 600 permintaan/menit per kunci, per instans Function.
 Melebihi itu dibalas `429`.
 
-**Hak kunci API** sama dengan sesi: buat/ubah/hapus blog, proyek, berita, dan
+**Hak konten kunci API:** buat/ubah/hapus blog, proyek, berita, dan
 dokumen legal, di kedua bahasa. Contoh alur agen:
 
 ```bash

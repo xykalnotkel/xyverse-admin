@@ -154,12 +154,12 @@ async function verifikasiTurnstile(token, ip) {
 /**
  * Gerbang semua rute /api/* yang bukan endpoint autentikasi terbuka.
  *
- * Dua jalan masuk, setara haknya:
+ * Dua jalan masuk dengan hak yang diperiksa di platform.js:
  *   1. Cookie sesi hasil login peramban (bcrypt + Turnstile).
  *   2. Kunci API di header `Authorization: Bearer xya_...` atau `X-Api-Key`.
  *
- * Yang membedakan keduanya cuma satu hal: mengelola kunci API (buat/cabut)
- * hanya boleh lewat cookie. Lihat `wajibSesi` di core.js.
+ * Kunci API hanya untuk konten + operasional. Tindakan owner memerlukan
+ * sesi owner: anggota, password, pengaturan situs, audit, dan kunci lain.
  */
 export async function wajibMasuk(req, res, next) {
   const sesi = await sesiAktif(req);

@@ -103,13 +103,19 @@ export default function KunciApi({ say }) {
       <header className="top">
         <div>
           <h1>Kunci API</h1>
-          <div className="sub">Akses /api/* untuk agen AI dan skrip, tanpa login peramban</div>
+          <div className="sub">Konten + operasional untuk agen AI dan skrip, tanpa login peramban</div>
         </div>
         <div className="spacer" />
         <button className="btn btn-g icon" title="Muat ulang" onClick={muat}><I.refresh /></button>
       </header>
 
       <div className="body">
+        <Alert tipe="warn" judul="Cakupan: konten + operasional">
+          Berlaku untuk semua kunci, termasuk kunci yang sudah dibuat: konten, media, AI,
+          inbox pelanggan (baca &amp; tindak lanjut), serta deploy. Kunci tidak bisa mengelola
+          anggota/password xyteam, pengaturan situs, log owner, atau kunci API lain.
+          Simpan kunci di server—jangan masukkan ke kode web publik.
+        </Alert>
         <Alert tipe="info" judul="Kunci hanya ditampilkan sekali">
           Yang disimpan di server hanyalah hash SHA-256. Kalau kunci hilang, cabut lalu buat baru —
           tidak ada cara memunculkannya lagi.

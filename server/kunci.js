@@ -1,5 +1,5 @@
 /**
- * Kunci API — jalan masuk kedua ke seluruh /api/*, selain login peramban.
+ * Kunci API — akses konten dan operasional, bukan hak owner.
  *
  * Untuk agen AI dan skrip: tidak ada cookie, tidak ada Turnstile, cukup
  * header
@@ -18,8 +18,8 @@
  * cabut dan buat baru.
  *
  * KUNCI BOOTSTRAP. Selain kunci tersimpan, nilai ADMIN_API_KEY di lingkungan
- * juga diterima. Gunanya untuk bootstrap (membuat kunci tersimpan pertama
- * lewat API) dan untuk lingkungan yang tidak mau menulis ke repo. Kunci ini
+ * juga diterima untuk skrip operasional yang dikonfigurasi pemilik. Kunci
+ * bootstrap TIDAK boleh membuat kunci lain. Kunci ini
  * tidak bisa dicabut lewat API — matikan lewat dashboard Vercel.
  *
  * YANG SENGAJA DIBATASI: membuat dan mencabut kunci HANYA boleh lewat sesi
@@ -125,13 +125,13 @@ export async function verifikasiKunci(req) {
     if (!crypto.timingSafeEqual(Buffer.from(k.hash), targetBuf)) continue;
     if (k.kedaluwarsa && Date.now() > k.kedaluwarsa) continue;
     k.terakhirDipakai = Date.now();
-    return { jenis: 'api', id: k.id, label: k.label || 'kunci API', cakupan: k.cakupan || 'penuh' };
+    return { jenis: 'api', id: k.id, label: k.label || 'kunci API', cakupan: 'konten-operasional' };
   }
 
   // Kunci bootstrap dari lingkungan.
   const boot = CFG.bootstrap();
   if (boot && setara(kunci, boot)) {
-    return { jenis: 'api', id: 'env', label: 'ADMIN_API_KEY (lingkungan)', cakupan: 'penuh' };
+    return { jenis: 'api', id: 'env', label: 'ADMIN_API_KEY (lingkungan)', cakupan: 'konten-operasional' };
   }
   return null;
 }
@@ -143,6 +143,7 @@ export async function daftarPublik() {
   const kini = Date.now();
   const keluar = daftar.map((k) => ({
     id: k.id,
+    cakupan: 'konten-operasional',
     label: k.label,
     awalan: k.awalan,
     dibuat: k.dibuat,
@@ -156,6 +157,7 @@ export async function daftarPublik() {
   if (CFG.bootstrap()) {
     keluar.push({
       id: 'env',
+      cakupan: 'konten-operasional',
       label: 'ADMIN_API_KEY (lingkungan)',
       awalan: CFG.bootstrap().slice(0, 10) + '…',
       dibuat: null,
@@ -245,7 +247,7 @@ export async function buat({ label = '', kedaluwarsaHari = null, kedaluwarsaPada
     label: nama,
     hash: h,
     awalan: teks.slice(0, 10),
-    cakupan: 'penuh',
+    cakupan: 'konten-operasional',
     dibuat: new Date().toISOString(),
     kedaluwarsa: exp,
   };
@@ -332,6 +334,7 @@ export function catatPakai(sesi) {
 
 export const INFO = {
   awalan: AWALAN,
+  cakupan: 'konten-operasional',
   jalur: CFG.jalur,
   repo: () => gh.reposAdmin(),
   bootstrapAktif: () => Boolean(CFG.bootstrap()),

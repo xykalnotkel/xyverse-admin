@@ -361,6 +361,7 @@ function buatRouter() {
       kunciApi: {
         header: 'Authorization: Bearer xya_...',
         awalan: kunci.INFO.awalan,
+        cakupan: kunci.INFO.cakupan,
         repo: kunci.INFO.repo(),
         jalur: kunci.INFO.jalur(),
         bootstrap: kunci.INFO.bootstrapAktif(),
